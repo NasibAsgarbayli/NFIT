@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Folder Include="Abstracts\Services\" />
+    <Folder Include="Abstracts\Repositories\" />
+    <Folder Include="DTOs\" />
+    <Folder Include="Shared\Helpers\" />
+    <Folder Include="Shared\Settings\" />
+    <Folder Include="Validations\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NFIT.Domain\NFIT.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

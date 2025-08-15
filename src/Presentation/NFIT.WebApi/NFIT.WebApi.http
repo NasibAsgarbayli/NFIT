@@ -1,0 +1,6 @@
+@NFIT.WebApi_HostAddress = http://localhost:5183
+
+GET {{NFIT.WebApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

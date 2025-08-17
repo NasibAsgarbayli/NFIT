@@ -1,6 +1,6 @@
 ﻿namespace NFIT.Domain.Entities;
 
-public class Category
+public class Category:BaseEntity
 {
     public string Name { get; set; } = null!;
     public string? Description { get; set; }

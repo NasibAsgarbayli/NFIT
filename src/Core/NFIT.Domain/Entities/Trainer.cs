@@ -1,6 +1,6 @@
 ﻿namespace NFIT.Domain.Entities;
 
-public class Trainer
+public class Trainer:BaseEntity
 {
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;

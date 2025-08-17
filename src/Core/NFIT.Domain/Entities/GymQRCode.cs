@@ -1,12 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace NFIT.Domain.Entities;
 
-namespace NFIT.Domain.Entities
+public class GymQRCode:BaseEntity
 {
-    internal class GymQRCode
-    {
-    }
+    public Guid GymId { get; set; }
+    public Gym Gym { get; set; } = null!;
+
+    public string QRCodeData { get; set; } = null!; // Unique QR data
+    public bool IsActive { get; set; } = true;
 }

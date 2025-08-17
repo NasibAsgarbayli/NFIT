@@ -10,7 +10,11 @@ public class Order:BaseEntity
     public PaymentMethod PaymentMethod { get; set; } 
     public DateTime OrderDate { get; set; }
 
+    public string UserId { get; set; } = null!;
+    public AppUser User { get; set; } = null!;
+
     public SupplementOrderStatus Status { get; set; } = SupplementOrderStatus.Pending;
+
     public ICollection<OrderSupplement> OrderSupplements { get; set; }
-    public ICollection<AppUser> Users { get; set; }
+   
 }

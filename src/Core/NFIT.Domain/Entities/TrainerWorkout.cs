@@ -13,7 +13,7 @@ public class TrainerWorkout : BaseEntity
     public int EstimatedDuration { get; set; }
     public MuscleGroup TargetMuscles { get; set; }
     public EquipmentType RequiredEquipment { get; set; }
-    public string ThumbnailUrl { get; set; } = string.Empty;
+    public string? ThumbnailUrl { get; set; } = string.Empty;
     public string? PreviewVideoUrl { get; set; }
     public bool IsPremium { get; set; }
     public int ViewCount { get; set; }

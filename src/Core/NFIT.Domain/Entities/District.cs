@@ -1,12 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace NFIT.Domain.Entities;
 
-namespace NFIT.Domain.Entities
+public class District:BaseEntity
 {
-    internal class District
-    {
-    }
+    public string Name { get; set; } = string.Empty;
+    public bool IsActive { get; set; } = true;
+
+    // Computed property - həmişə Baku qaytarır
+    public string City => "Baku";
+
+    public ICollection<Gym> Gyms { get; set; }
 }

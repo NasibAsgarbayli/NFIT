@@ -1,13 +1,13 @@
 ﻿namespace NFIT.Domain.Entities;
 
-public class Image
+public class Image:BaseEntity
 {
     public string ImageUrl { get; set; } = null!;
 
-    public Guid GYMId { get; set; }
-    public Gym GYM { get; set; }
+    public Guid? GymId { get; set; }
+    public Gym? Gym { get; set; }
 
-    public Guid SupplementId { get; set; }
-    public Supplement Supplement { get; set; }
+    public Guid? SupplementId { get; set; }
+    public Supplement? Supplement { get; set; }
 
 }

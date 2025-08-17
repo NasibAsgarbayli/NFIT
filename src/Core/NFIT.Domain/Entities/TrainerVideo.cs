@@ -9,7 +9,7 @@ public class TrainerVideo : BaseEntity
     public Guid TrainerId { get; set; }
     public Trainer Trainer { get; set; } = null!;
     public string VideoUrl { get; set; } = string.Empty;
-    public string ThumbnailUrl { get; set; } = string.Empty;
+    public string? ThumbnailUrl { get; set; }
     public int Duration { get; set; }
     public VideoType Type { get; set; }
     public WorkoutCategory? Category { get; set; }

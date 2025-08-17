@@ -19,7 +19,8 @@ public class AppUser:IdentityUser
     public string? Address { get; set; }
     public bool IsActive { get; set; } = true;
     public PaymentMethod Payment { get; set; }
-    public ICollection<OrderSupplement> SupplementOrders { get; set; }
+    public ICollection<Order> Orders { get; set; }
     public ICollection<Favourite> Favourites { get; set; } 
     public ICollection<Review> Reviews { get; set; } 
+    public ICollection<GymCheckIn> GymCheckIns { get; set; } 
 }

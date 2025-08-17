@@ -9,7 +9,7 @@ public class Workout:BaseEntity
     public int EstimatedDuration { get; set; }
     public DifficultyLevel Difficulty { get; set; }
     public WorkoutCategory Category { get; set; }
-    public string[]? TargetMuscles { get; set; }
+    public MuscleGroup[]? TargetMuscles { get; set; }
     public string[]? RequiredEquipment { get; set; }
     public string? VideoUrl { get; set; }
     public bool IsPublic { get; set; } = true;

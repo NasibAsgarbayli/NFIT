@@ -1,6 +1,6 @@
 ﻿namespace NFIT.Domain.Entities;
 
-public class Supplement
+public class Supplement:BaseEntity
 {
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;

@@ -1152,7 +1152,7 @@ namespace NFIT.Persistence.Migrations
                     b.ToTable("TrainerVideos", (string)null);
                 });
 
-            modelBuilder.Entity("NFIT.Domain.Entities.TrainerWorkout", b =>
+            modelBuilder.Entity("NFIT.Domain.Entities.ITrainerWorkoutRepository", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1677,7 +1677,7 @@ namespace NFIT.Persistence.Migrations
                     b.Navigation("Trainer");
                 });
 
-            modelBuilder.Entity("NFIT.Domain.Entities.TrainerWorkout", b =>
+            modelBuilder.Entity("NFIT.Domain.Entities.ITrainerWorkoutRepository", b =>
                 {
                     b.HasOne("NFIT.Domain.Entities.Trainer", "Trainer")
                         .WithMany("TrainerWorkouts")
@@ -1696,7 +1696,7 @@ namespace NFIT.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("NFIT.Domain.Entities.TrainerWorkout", "TrainerWorkout")
+                    b.HasOne("NFIT.Domain.Entities.ITrainerWorkoutRepository", "ITrainerWorkoutRepository")
                         .WithMany("WorkoutExercises")
                         .HasForeignKey("TrainerWorkoutId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -1704,7 +1704,7 @@ namespace NFIT.Persistence.Migrations
 
                     b.Navigation("Exercise");
 
-                    b.Navigation("TrainerWorkout");
+                    b.Navigation("ITrainerWorkoutRepository");
                 });
 
             modelBuilder.Entity("NFIT.Domain.Entities.WorkoutExercise", b =>
@@ -1789,7 +1789,7 @@ namespace NFIT.Persistence.Migrations
                     b.Navigation("TrainerWorkouts");
                 });
 
-            modelBuilder.Entity("NFIT.Domain.Entities.TrainerWorkout", b =>
+            modelBuilder.Entity("NFIT.Domain.Entities.ITrainerWorkoutRepository", b =>
                 {
                     b.Navigation("WorkoutExercises");
                 });

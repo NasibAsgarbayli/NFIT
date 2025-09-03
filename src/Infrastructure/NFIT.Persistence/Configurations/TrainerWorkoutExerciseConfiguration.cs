@@ -31,7 +31,7 @@ public class TrainerWorkoutExerciseConfiguration : IEntityTypeConfiguration<Trai
         builder.Property(x => x.VideoUrl)
             .HasMaxLength(300);
 
-        // Relation: TrainerWorkoutExercise -> TrainerWorkout (Many-to-One)
+        // Relation: TrainerWorkoutExercise -> ITrainerWorkoutRepository (Many-to-One)
         builder.HasOne(x => x.TrainerWorkout)
             .WithMany(x => x.WorkoutExercises)
             .HasForeignKey(x => x.TrainerWorkoutId)

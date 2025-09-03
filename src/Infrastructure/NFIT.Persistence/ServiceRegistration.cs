@@ -1,0 +1,35 @@
+﻿using Microsoft.Extensions.DependencyInjection;
+using NFIT.Application.Abstracts.Repositories;
+using NFIT.Persistence.Repositories;
+
+namespace NFIT.Persistence;
+
+public static class ServiceRegistration
+{
+    public static void RegisterService(this IServiceCollection services)
+    {
+        #region Repositoires
+        services.AddScoped<IGymRepository, IGymRepository>();
+        services.AddScoped<ICategoryRepository, CategoryRepository>();
+        services.AddScoped<IDistrictRepository, DistrictRepository>();
+        services.AddScoped<IExerciseRepository, ExerciseRepository>();
+        services.AddScoped<IFavouriteRepository, FavouriteRepository>();
+        services.AddScoped<IGymCheckInRepository, GymCheckInRepository>();
+        services.AddScoped<IGymQrCodeRepository, GymQrCodeRepository>();
+        services.AddScoped<IImageRepository, ImageRepository>();
+        services.AddScoped<IMembershipRepository, MembershipRepository>();
+        services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<IReviewRepository, ReviewRepository>();
+        services.AddScoped<ISubscriptionPlanRepository, SubscriptionPlanRepository>();
+        services.AddScoped<ISupplementRepository, SupplementRepository>();
+        services.AddScoped<ITrainerRepository, TrainerRepository>();
+        services.AddScoped<ITrainerWorkoutRepository, TrainerWorkoutRepository>();
+        services.AddScoped<IWorkoutRepository, WorkoutRepository>();
+        #endregion
+
+
+        #region Servcices
+
+        #endregion
+    }
+}

@@ -4,9 +4,11 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace NFIT.Application.Shared
+namespace NFIT.Application.Shared;
+
+public class RefreshTokenRequest
 {
-    internal class RefreshTokenRequest
-    {
-    }
+    public string AccessToken { get; set; } = null!;
+    public string RefreshToken { get; set; } = null!;
+
 }

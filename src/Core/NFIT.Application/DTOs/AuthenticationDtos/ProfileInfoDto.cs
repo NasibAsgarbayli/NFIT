@@ -1,12 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace NFIT.Application.DTOs.AuthenticationDtos;
 
-namespace NFIT.Application.DTOs.AuthenticationDtos
+public class ProfileInfoDto
 {
-    internal class ProfileInfoDto
-    {
-    }
+    public string Id { get; set; } = null!;
+    public string FullName { get; set; } = null!;
+    public string Email { get; set; } = null!;
 }

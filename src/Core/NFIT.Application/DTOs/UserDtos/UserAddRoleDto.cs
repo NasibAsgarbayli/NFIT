@@ -1,12 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace NFIT.Application.DTOs.UserDtos;
 
-namespace NFIT.Application.DTOs.UserDtos
+public class UserAddRoleDto
 {
-    internal class UserAddRoleDto
-    {
-    }
+    public Guid UserId { get; set; }
+    public List<Guid> RoleId { get; set; }
 }

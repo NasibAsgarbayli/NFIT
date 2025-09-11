@@ -1,43 +1,108 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System.Net;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using NFIT.Application.Abstracts.Services;
+using NFIT.Application.DTOs.AuthenticationDtos;
+using NFIT.Application.Shared;
 
 // For more information on enabling Web API for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
 
 namespace NFIT.WebApi.Controllers
 {
-    [Route("api/[controller]")]
+    [Route("api/[controller]/[action]")]
     [ApiController]
     public class AuthenticationController : ControllerBase
     {
-        // GET: api/<AuthenticationController>
-        [HttpGet]
-        public IEnumerable<string> Get()
+        private readonly IAuthentication _authentication;
+
+        public AuthenticationController(IAuthentication authentication)
         {
-            return new string[] { "value1", "value2" };
+            _authentication = authentication;
         }
 
-        // GET api/<AuthenticationController>/5
-        [HttpGet("{id}")]
-        public string Get(int id)
+        [HttpGet("Aboutme")]
+        [Authorize]
+        [ProducesResponseType(typeof(BaseResponse<ProfileInfoDto>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.Unauthorized)]
+        public async Task<IActionResult> Me()
         {
-            return "value";
+            var result = await _authentication.GetProfileAsync(User);
+            return StatusCode((int)result.StatusCode, result);
+
         }
 
-        // POST api/<AuthenticationController>
         [HttpPost]
-        public void Post([FromBody] string value)
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.Created)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.InternalServerError)]
+        public async Task<IActionResult> Register([FromBody] UserRegisterDto dto)
         {
+            var result = await _authentication.Register(dto);
+            return StatusCode((int)result.StatusCode, result);
+        }
+        [HttpPost]
+        [ProducesResponseType(typeof(BaseResponse<TokenResponse>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.InternalServerError)]
+        public async Task<IActionResult> Login([FromBody] UserLoginDto dto)
+        {
+            var result = await _authentication.Login(dto);
+            return StatusCode((int)result.StatusCode, result);
         }
 
-        // PUT api/<AuthenticationController>/5
-        [HttpPut("{id}")]
-        public void Put(int id, [FromBody] string value)
+        [HttpPost]
+        [ProducesResponseType(typeof(BaseResponse<TokenResponse>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.InternalServerError)]
+        public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest dto)
         {
+            var result = await _authentication.RefreshTokenAsync(dto);
+            return StatusCode((int)result.StatusCode, result);
         }
 
-        // DELETE api/<AuthenticationController>/5
-        [HttpDelete("{id}")]
-        public void Delete(int id)
+
+
+
+        [HttpGet]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.InternalServerError)]
+        public async Task<IActionResult> ConfirmEmail([FromQuery] string userId, [FromQuery] string token)
         {
+
+            var result = await _authentication.ConfirmEmail(userId, token);
+            return StatusCode((int)result.StatusCode, result);
+
         }
+
+
+
+
+        [HttpGet]
+        [Authorize()]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.InternalServerError)]
+        public async Task<IActionResult> SendResetConfirmEmail([FromQuery] string email)
+        {
+            var result = await _authentication.SendResetPasswordEmail(email);
+            return StatusCode((int)result.StatusCode, result);
+        }
+
+        [HttpPost]
+        [Authorize()]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.InternalServerError)]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
+        {
+            var result = await _authentication.ResetPasswordAsync(dto);
+            return StatusCode((int)result.StatusCode, result);
+
+        }
+
     }
 }

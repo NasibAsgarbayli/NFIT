@@ -1,12 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace NFIT.Application.Shared;
 
-namespace NFIT.Application.Shared
+public class TokenResponse
 {
-    internal class TokenResponse
-    {
-    }
+    public string? Token { get; set; }
+    public string? RefreshToken { get; set; }
+
+    public DateTime? ExpireDate { get; set; }
+
 }

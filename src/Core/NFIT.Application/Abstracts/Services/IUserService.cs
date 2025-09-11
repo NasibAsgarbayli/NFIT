@@ -1,12 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using NFIT.Application.DTOs.UserDtos;
+using NFIT.Application.Shared;
 
-namespace NFIT.Application.Abstracts.Services
+namespace NFIT.Application.Abstracts.Services;
+
+public interface IUserService
 {
-    internal interface IUserService
-    {
-    }
+
+    Task<BaseResponse<string>> AddRole(UserAddRoleDto dto);
+    Task<BaseResponse<List<UserGetDto>>> GetAllAsync();
+    Task<BaseResponse<UserGetDto>> GetByIdAsync(Guid id);
+
+
 }

@@ -1,12 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace NFIT.Application.Abstracts.Services;
 
-namespace NFIT.Application.Abstracts.Services
+public interface IEmailService
 {
-    internal interface IEmailService
-    {
-    }
+    Task SendEmailAsync(IEnumerable<string> toEmail, string subject, string body);
 }

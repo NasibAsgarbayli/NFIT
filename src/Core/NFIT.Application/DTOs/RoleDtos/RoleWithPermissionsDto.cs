@@ -1,12 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace NFIT.Application.DTOs.RoleDtos;
 
-namespace NFIT.Application.DTOs.RoleDtos
+public class RoleWithPermissionsDto
 {
-    internal class RoleWithPermissionsDto
-    {
-    }
+    public string Name { get; set; } = null!;
+    public List<string> Permissions { get; set; } = new();
+    public string Id { get; set; }
 }

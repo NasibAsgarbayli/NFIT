@@ -3,6 +3,7 @@ using NFIT.Application.Abstracts.Repositories;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Infrastructure.Services;
 using NFIT.Persistence.Repositories;
+using NFIT.Persistence.Services;
 
 namespace NFIT.Persistence;
 
@@ -11,7 +12,7 @@ public static class ServiceRegistration
     public static void RegisterService(this IServiceCollection services)
     {
         #region Repositoires
-        services.AddScoped<IGymRepository, IGymRepository>();
+        services.AddScoped<IGymRepository, GymRepository>();
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IDistrictRepository, DistrictRepository>();
         services.AddScoped<IExerciseRepository, ExerciseRepository>();
@@ -32,6 +33,10 @@ public static class ServiceRegistration
 
         #region Servcices
         services.AddScoped<IFileService, FileService>();
+        services.AddScoped<IRoleService, RoleService>();
+        services.AddScoped<IAuthentication, Authentication>();
+        services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IEmailService, EmailService>();
         #endregion
     }
 }

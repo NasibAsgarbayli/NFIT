@@ -1,5 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using NFIT.Application.Abstracts.Repositories;
+using NFIT.Application.Abstracts.Services;
+using NFIT.Infrastructure.Services;
 using NFIT.Persistence.Repositories;
 
 namespace NFIT.Persistence;
@@ -29,7 +31,7 @@ public static class ServiceRegistration
 
 
         #region Servcices
-
+        services.AddScoped<IFileService, FileService>();
         #endregion
     }
 }

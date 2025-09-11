@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Core\NFIT.Application\NFIT.Application.csproj" />
+    <ProjectReference Include="..\NFIT.Infrastructure\NFIT.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

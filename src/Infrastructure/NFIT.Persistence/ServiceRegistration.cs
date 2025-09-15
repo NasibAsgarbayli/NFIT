@@ -41,6 +41,8 @@ public static class ServiceRegistration
         services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<ISubscriptionPlanService, SubscriptionPlanService>();
         services.AddScoped<ISearchService, SearchService>();
+        services.AddScoped<IFavouriteService, FavouriteService>();
+        services.AddScoped<IReviewService, ReviewService>();
        
         #endregion
     }

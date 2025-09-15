@@ -912,7 +912,7 @@ namespace NFIT.Persistence.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_GymCategories_GYMId_CategoryId",
                 table: "GymCategories",
-                columns: new[] { "GYMId", "CategoryId" },
+                columns: new[] { "GymId", "CategoryId" },
                 unique: true);
 
             migrationBuilder.CreateIndex(

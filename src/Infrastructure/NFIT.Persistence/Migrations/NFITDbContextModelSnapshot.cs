@@ -539,7 +539,7 @@ namespace NFIT.Persistence.Migrations
                     b.Property<Guid?>("CreatedUser")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("GYMId")
+                    b.Property<Guid>("GymId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<bool>("IsDeleted")
@@ -555,7 +555,7 @@ namespace NFIT.Persistence.Migrations
 
                     b.HasIndex("CategoryId");
 
-                    b.HasIndex("GYMId", "CategoryId")
+                    b.HasIndex("GymId", "CategoryId")
                         .IsUnique();
 
                     b.ToTable("GymCategories", (string)null);
@@ -929,6 +929,10 @@ namespace NFIT.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
 
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<decimal>("Price")
                         .HasColumnType("decimal(10,2)");
 
@@ -1152,7 +1156,7 @@ namespace NFIT.Persistence.Migrations
                     b.ToTable("TrainerVideos", (string)null);
                 });
 
-            modelBuilder.Entity("NFIT.Domain.Entities.ITrainerWorkoutRepository", b =>
+            modelBuilder.Entity("NFIT.Domain.Entities.TrainerWorkout", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1512,15 +1516,15 @@ namespace NFIT.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("NFIT.Domain.Entities.Gym", "GYM")
+                    b.HasOne("NFIT.Domain.Entities.Gym", "Gym")
                         .WithMany("GymCategories")
-                        .HasForeignKey("GYMId")
+                        .HasForeignKey("GymId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Category");
 
-                    b.Navigation("GYM");
+                    b.Navigation("Gym");
                 });
 
             modelBuilder.Entity("NFIT.Domain.Entities.GymCheckIn", b =>
@@ -1677,7 +1681,7 @@ namespace NFIT.Persistence.Migrations
                     b.Navigation("Trainer");
                 });
 
-            modelBuilder.Entity("NFIT.Domain.Entities.ITrainerWorkoutRepository", b =>
+            modelBuilder.Entity("NFIT.Domain.Entities.TrainerWorkout", b =>
                 {
                     b.HasOne("NFIT.Domain.Entities.Trainer", "Trainer")
                         .WithMany("TrainerWorkouts")
@@ -1696,7 +1700,7 @@ namespace NFIT.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("NFIT.Domain.Entities.ITrainerWorkoutRepository", "ITrainerWorkoutRepository")
+                    b.HasOne("NFIT.Domain.Entities.TrainerWorkout", "TrainerWorkout")
                         .WithMany("WorkoutExercises")
                         .HasForeignKey("TrainerWorkoutId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -1704,7 +1708,7 @@ namespace NFIT.Persistence.Migrations
 
                     b.Navigation("Exercise");
 
-                    b.Navigation("ITrainerWorkoutRepository");
+                    b.Navigation("TrainerWorkout");
                 });
 
             modelBuilder.Entity("NFIT.Domain.Entities.WorkoutExercise", b =>
@@ -1789,7 +1793,7 @@ namespace NFIT.Persistence.Migrations
                     b.Navigation("TrainerWorkouts");
                 });
 
-            modelBuilder.Entity("NFIT.Domain.Entities.ITrainerWorkoutRepository", b =>
+            modelBuilder.Entity("NFIT.Domain.Entities.TrainerWorkout", b =>
                 {
                     b.Navigation("WorkoutExercises");
                 });

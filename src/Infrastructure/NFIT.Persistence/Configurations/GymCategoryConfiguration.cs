@@ -10,13 +10,13 @@ public class GymCategoryConfiguration : IEntityTypeConfiguration<GymCategory>
     {
         builder.ToTable("GymCategories");
 
-        // ➤ Hər bir kombinasiya unikal olmalıdır (GYMId + CategoryId)
-        builder.HasIndex(gc => new { gc.GYMId, gc.CategoryId }).IsUnique();
+        // ➤ Hər bir kombinasiya unikal olmalıdır (GymId + CategoryId)
+        builder.HasIndex(gc => new { gc.GymId, gc.CategoryId }).IsUnique();
 
-        // ➤ GYM əlaqəsi
-        builder.HasOne(gc => gc.GYM)
+        // ➤ Gym əlaqəsi
+        builder.HasOne(gc => gc.Gym)
                .WithMany(g => g.GymCategories)
-               .HasForeignKey(gc => gc.GYMId)
+               .HasForeignKey(gc => gc.GymId)
                .OnDelete(DeleteBehavior.Restrict);
 
         // ➤ Category əlaqəsi

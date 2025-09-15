@@ -51,8 +51,8 @@ public class GymConfiguration: IEntityTypeConfiguration<Gym>
 
         // ➤ GymCategory (M:N → Gym ↔ GymCategory ↔ Category)
         builder.HasMany(g => g.GymCategories)
-               .WithOne(gc => gc.GYM)
-               .HasForeignKey(gc => gc.GYMId)
+               .WithOne(gc => gc.Gym)
+               .HasForeignKey(gc => gc.GymId)
                .OnDelete(DeleteBehavior.Restrict);
 
         // ➤ Review əlaqəsi
@@ -63,7 +63,7 @@ public class GymConfiguration: IEntityTypeConfiguration<Gym>
 
         // ➤ SubscriptionPlan əlaqəsi (Gym → AvailableSubscriptions)
         builder.HasMany(g => g.AvailableSubscriptions)
-               .WithMany(s => s.GYMS);
+               .WithMany(s => s.Gyms);
 
         // ➤ Image əlaqəsi
         builder.HasMany(g => g.Images)

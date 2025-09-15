@@ -27,8 +27,8 @@ public class SubscriptionPlanConfiguration : IEntityTypeConfiguration<Subscripti
         builder.Property(sp => sp.BillingCycle)
                .IsRequired();
 
-        // GYMS ilə əlaqə (bir planı bir neçə gym istifadə edə bilər)
-        builder.HasMany(sp => sp.GYMS)
+        // Gyms ilə əlaqə (bir planı bir neçə gym istifadə edə bilər)
+        builder.HasMany(sp => sp.Gyms)
                .WithMany(g => g.AvailableSubscriptions)
                .UsingEntity<Dictionary<string, object>>(
                     "GymSubscriptionPlan",

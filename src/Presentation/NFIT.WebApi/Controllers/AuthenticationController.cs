@@ -20,16 +20,6 @@ namespace NFIT.WebApi.Controllers
             _authentication = authentication;
         }
 
-        [HttpGet("Aboutme")]
-        [Authorize]
-        [ProducesResponseType(typeof(BaseResponse<ProfileInfoDto>), (int)HttpStatusCode.OK)]
-        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.Unauthorized)]
-        public async Task<IActionResult> Me()
-        {
-            var result = await _authentication.GetProfileAsync(User);
-            return StatusCode((int)result.StatusCode, result);
-
-        }
 
         [HttpPost]
         [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.Created)]
@@ -61,7 +51,18 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)result.StatusCode, result);
         }
 
+        [HttpPost]
+        [Authorize()]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.InternalServerError)]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
+        {
+            var result = await _authentication.ResetPasswordAsync(dto);
+            return StatusCode((int)result.StatusCode, result);
 
+        }
 
 
         [HttpGet]
@@ -91,18 +92,17 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)result.StatusCode, result);
         }
 
-        [HttpPost]
-        [Authorize()]
-        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
-        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
-        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]
-        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.InternalServerError)]
-        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
+        [HttpGet("Aboutme")]
+        [Authorize]
+        [ProducesResponseType(typeof(BaseResponse<ProfileInfoDto>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.Unauthorized)]
+        public async Task<IActionResult> Me()
         {
-            var result = await _authentication.ResetPasswordAsync(dto);
+            var result = await _authentication.GetProfileAsync(User);
             return StatusCode((int)result.StatusCode, result);
 
         }
+
 
     }
 }

@@ -18,9 +18,9 @@ public class CategoryConfiguration : IEntityTypeConfiguration<Category>
        .WithMany() // əgər Gym tərəfində belə navigation yoxdursa WithMany() yaz
        .UsingEntity<GymCategory>(
            j => j
-               .HasOne(gc => gc.GYM)
+               .HasOne(gc => gc.Gym)
                .WithMany()
-               .HasForeignKey(gc => gc.GYMId)
+               .HasForeignKey(gc => gc.GymId)
                .OnDelete(DeleteBehavior.Restrict),
 
            j => j

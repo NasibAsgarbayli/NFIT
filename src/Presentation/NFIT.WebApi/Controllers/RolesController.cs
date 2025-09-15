@@ -21,13 +21,7 @@ namespace NFIT.WebApi.Controllers
 
 
         // GET: api/<RolesController>
-        [HttpGet("permissions")]
-        [Authorize(Policy = Permissions.Role.GetAllPermissions)]
-        public IActionResult GetAllPermissions()
-        {
-            var permissions = PermissionHelper.GetAllPermissions();
-            return Ok(permissions);
-        }
+     
         [HttpPost("CreateRole")]
         [Authorize(Policy = Permissions.Role.Create)]
         public async Task<IActionResult> Create(RoleCreateDto dto)
@@ -54,6 +48,14 @@ namespace NFIT.WebApi.Controllers
         {
             var result = await _roleService.GetAllRolesWithPermissionsAsync();
             return StatusCode((int)result.StatusCode, result);
+        }
+
+        [HttpGet("permissions")]
+        [Authorize(Policy = Permissions.Role.GetAllPermissions)]
+        public IActionResult GetAllPermissions()
+        {
+            var permissions = PermissionHelper.GetAllPermissions();
+            return Ok(permissions);
         }
 
 

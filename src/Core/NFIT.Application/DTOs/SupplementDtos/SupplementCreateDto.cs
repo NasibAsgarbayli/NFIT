@@ -1,12 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace NFIT.Application.DTOs.SupplementDtos;
 
-namespace NFIT.Application.DTOs.SupplementDtos
+public class SupplementCreateDto
 {
-    internal class SupplementCreateDto
-    {
-    }
+    public string Name { get; set; } 
+    public string Description { get; set; } 
+    public decimal Price { get; set; }
+    public int StockQuantity { get; set; }
+    public string? Brand { get; set; }
+    public string? Flavor { get; set; }
+    public decimal? Weight { get; set; }
 }

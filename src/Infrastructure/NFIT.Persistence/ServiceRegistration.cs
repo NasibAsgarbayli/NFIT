@@ -44,6 +44,7 @@ public static class ServiceRegistration
         services.AddScoped<IFavouriteService, FavouriteService>();
         services.AddScoped<IReviewService, ReviewService>();
         services.AddScoped<IDistrictService, DistrictService>();
+        services.AddScoped<ISupplementService, SupplementService>();
        
         #endregion
     }

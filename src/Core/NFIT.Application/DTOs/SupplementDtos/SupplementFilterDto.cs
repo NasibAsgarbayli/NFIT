@@ -1,12 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace NFIT.Application.DTOs.SupplementDtos;
 
-namespace NFIT.Application.DTOs.SupplementDtos
+public class SupplementFilterDto
 {
-    internal class SupplementFilterDto
-    {
-    }
+    public string? Brand { get; set; }
+    public string? Search { get; set; }
 }

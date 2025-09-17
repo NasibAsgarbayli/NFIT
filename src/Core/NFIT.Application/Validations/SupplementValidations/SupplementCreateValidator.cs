@@ -1,12 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using FluentValidation;
+using NFIT.Application.DTOs.SupplementDtos;
 
-namespace NFIT.Application.Validations.SupplementValidations
+namespace NFIT.Application.Validations.SupplementValidations;
+
+public class SupplementCreateValidator:AbstractValidator<SupplementCreateDto>
 {
-    internal class SupplementCreateValidator
+    public SupplementCreateValidator()
     {
+        RuleFor(x => x.Name).NotEmpty().Length(2, 150);
+        RuleFor(x => x.Price).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.StockQuantity).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.Description).MaximumLength(2000);
     }
 }

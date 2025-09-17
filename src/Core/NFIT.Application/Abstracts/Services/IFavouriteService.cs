@@ -8,9 +8,9 @@ public interface IFavouriteService
     Task<BaseResponse<string>> CreateAsync(FavouriteAddDto dto);
     Task<BaseResponse<string>> DeleteByIdAsync(Guid favouriteId);
 
-    Task<BaseResponse<List<FavouriteListItemDto>>> GetAllMyFavouriteAsync();
+    Task<BaseResponse<FavouriteListResponseDto>> GetAllMyFavouriteAsync();
 
-    Task<BaseResponse<int>> GetUserFavouriteCountAsync();
+
     Task<BaseResponse<List<FavouriteListItemDto>>> GetUserFavouriteGymsAsync();
     Task<BaseResponse<List<FavouriteListItemDto>>> GetUserFavouriteTrainersAsync();
     Task<BaseResponse<List<FavouriteListItemDto>>> GetUserFavouriteSupplementsAsync();

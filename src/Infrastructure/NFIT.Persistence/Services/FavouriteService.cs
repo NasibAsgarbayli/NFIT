@@ -106,53 +106,46 @@ public class FavouriteService:IFavouriteService
         return new BaseResponse<string>("Favourite deleted", HttpStatusCode.OK);
     }
 
-    public async Task<BaseResponse<List<FavouriteListItemDto>>> GetAllMyFavouriteAsync()
+    public async Task<BaseResponse<FavouriteListResponseDto>> GetAllMyFavouriteAsync()
     {
         var userId = GetCurrentUserId();
         if (string.IsNullOrWhiteSpace(userId))
-            return new BaseResponse<List<FavouriteListItemDto>>("Unauthorized", null, HttpStatusCode.Unauthorized);
+            return new BaseResponse<FavouriteListResponseDto>("Unauthorized", null, HttpStatusCode.Unauthorized);
 
-        var list = await _context.Favourites
+        var query = _context.Favourites.Where(f => f.UserId == userId && !f.IsDeleted);
+
+        var totalCount = await query.CountAsync();
+
+        var list = await query
             .Include(f => f.Gym).ThenInclude(g => g.District)
             .Include(f => f.Trainer)
             .Include(f => f.Supplement)
-            .Where(f => f.UserId == userId && !f.IsDeleted)
             .OrderByDescending(f => f.AddedAt)
             .AsNoTracking()
             .ToListAsync();
 
-        var result = list.Select(f => new FavouriteListItemDto
+        var items = list.Select(f => new FavouriteListItemDto
         {
             Id = f.Id,
             Type = f.GymId.HasValue ? "Gym" :
                    f.TrainerId.HasValue ? "Trainer" : "Supplement",
             EntityId = f.GymId ?? f.TrainerId ?? f.SupplementId ?? Guid.Empty,
             Name = f.Gym != null
-                      ? (f.Gym.Name ?? "")
-                      : f.Trainer != null
-                            ? ((f.Trainer.FirstName + " " + f.Trainer.LastName).Trim())
-                            : f.Supplement != null
-                                  ? (f.Supplement.Name ?? "")
-                                  : "",
+                     ? (f.Gym.Name ?? "")
+                     : f.Trainer != null
+                         ? ((f.Trainer.FirstName + " " + f.Trainer.LastName).Trim())
+                         : f.Supplement != null
+                             ? (f.Supplement.Name ?? "")
+                             : "",
             AddedAt = f.AddedAt
         }).ToList();
 
-        if (result.Count == 0)
-            return new BaseResponse<List<FavouriteListItemDto>>("No favourites found", null, HttpStatusCode.NotFound);
+        if (items.Count == 0)
+            return new BaseResponse<FavouriteListResponseDto>("No favourites found", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<List<FavouriteListItemDto>>("Favourites retrieved", result, HttpStatusCode.OK);
+        var payload = new FavouriteListResponseDto { TotalCount = totalCount, Items = items };
+        return new BaseResponse<FavouriteListResponseDto>("Favourites retrieved", payload, HttpStatusCode.OK);
     }
-
-    public async Task<BaseResponse<int>> GetUserFavouriteCountAsync()
-    {
-        var userId = GetCurrentUserId();
-        if (string.IsNullOrWhiteSpace(userId))
-            return new BaseResponse<int>("Unauthorized", 0, HttpStatusCode.Unauthorized);
-
-        var count = await _context.Favourites.CountAsync(f => f.UserId == userId && !f.IsDeleted);
-        return new BaseResponse<int>("Favourite count retrieved", count, HttpStatusCode.OK);
-    }
-
     public async Task<BaseResponse<List<FavouriteListItemDto>>> GetUserFavouriteGymsAsync()
     {
         var userId = GetCurrentUserId();

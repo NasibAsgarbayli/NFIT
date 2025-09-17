@@ -45,14 +45,6 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)result.StatusCode, result);
         }
 
-        // ---- Count of all my favourites ----
-        [HttpGet("FavCount")]
-        [ProducesResponseType(typeof(BaseResponse<int>), StatusCodes.Status200OK)]
-        public async Task<IActionResult> GetCount()
-        {
-            var result = await _service.GetUserFavouriteCountAsync();
-            return StatusCode((int)result.StatusCode, result);
-        }
 
         // ---- Only my favourite gyms ----
         [HttpGet("FavGyms")]

@@ -43,6 +43,7 @@ public static class ServiceRegistration
         services.AddScoped<ISearchService, SearchService>();
         services.AddScoped<IFavouriteService, FavouriteService>();
         services.AddScoped<IReviewService, ReviewService>();
+        services.AddScoped<IDistrictService, DistrictService>();
        
         #endregion
     }

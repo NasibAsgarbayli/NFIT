@@ -67,11 +67,29 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)r.StatusCode, r);
         }
 
+        [HttpPost("{id:guid}/images")]
+        [Consumes("multipart/form-data")]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status201Created)]
+        public async Task<IActionResult> AddImage(Guid id, [FromForm] SupplementImageUploadDto dto)
+        {
+            var r = await _service.AddImageAsync(id, dto);
+            return StatusCode((int)r.StatusCode, r);
+        }
+
         // ============ DELETE ============
         //[Authorize(Policy = Permissions.Supplement.Delete)]
         [HttpDelete("{id:guid}")]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         public async Task<IActionResult> Delete(Guid id)
             => StatusCode((int)(await _service.DeleteAsync(id)).StatusCode, await _service.DeleteAsync(id));
+
+        //[Authorize(Policy = Permissions.Supplement.ManageImages)]
+        [HttpDelete("{id:guid}/images/{imageId:guid}")]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> DeleteImage(Guid id, Guid imageId)
+        {
+            var r = await _service.DeleteImageAsync(id, imageId);
+            return StatusCode((int)r.StatusCode, r);
+        }
     }
 }

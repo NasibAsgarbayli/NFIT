@@ -11,9 +11,11 @@ namespace NFIT.Persistence.Services;
 public class SupplementService:ISupplementService
 {
     private readonly NFITDbContext _context;
-    public SupplementService(NFITDbContext context)
+    private readonly IFileService _fileService;
+    public SupplementService(NFITDbContext context, IFileService fileService)
     {
         _context = context;
+        _fileService = fileService;
     }
     // CREATE
     public async Task<BaseResponse<Guid>> CreateAsync(SupplementCreateDto dto)
@@ -223,5 +225,58 @@ public class SupplementService:ISupplementService
             IsActive = s.IsActive,
             FavouriteCount = s.Favourites.Count(f => !f.IsDeleted)
         };
+    public async Task<BaseResponse<string>> AddImageAsync(Guid supplementId, SupplementImageUploadDto dto)
+    {
+        if (dto.File == null || dto.File.Length == 0)
+            return new BaseResponse<string>("Image is required", HttpStatusCode.BadRequest);
 
+        var supplement = await _context.Supplements
+            .Include(s => s.Images)
+            .FirstOrDefaultAsync(s => s.Id == supplementId && !s.IsDeleted);
+
+        if (supplement is null)
+            return new BaseResponse<string>("Supplement not found", HttpStatusCode.NotFound);
+
+        var url = await _fileService.UploadAsync(dto.File); // məsələn: /uploads/xyz.jpg
+
+        var img = new Image
+        {
+            Id = Guid.NewGuid(),
+            ImageUrl = url,
+            SupplementId = supplementId,
+            IsDeleted = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        supplement.Images ??= new List<Image>();
+        supplement.Images.Add(img);
+
+        _context.Supplements.Update(supplement);
+        await _context.SaveChangesAsync();
+
+        // Data sahəsində URL-i qaytarırıq
+        return new BaseResponse<string>("Image added to supplement", url, HttpStatusCode.Created);
+    }
+
+    public async Task<BaseResponse<string>> DeleteImageAsync(Guid supplementId, Guid imageId)
+    {
+        var supplement = await _context.Supplements
+            .Include(s => s.Images)
+            .FirstOrDefaultAsync(s => s.Id == supplementId && !s.IsDeleted);
+
+        if (supplement is null)
+            return new BaseResponse<string>("Supplement not found", HttpStatusCode.NotFound);
+
+        var image = supplement.Images?.FirstOrDefault(i => i.Id == imageId && !i.IsDeleted);
+        if (image is null)
+            return new BaseResponse<string>("Image not found", HttpStatusCode.NotFound);
+
+        image.IsDeleted = true;
+        image.UpdatedAt = DateTime.UtcNow;
+
+        _context.Images.Update(image); // DbSet<Image> olmalıdır
+        await _context.SaveChangesAsync();
+
+        return new BaseResponse<string>("Image deleted from supplement", HttpStatusCode.OK);
+    }
 }

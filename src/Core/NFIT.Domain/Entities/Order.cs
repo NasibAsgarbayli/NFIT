@@ -16,5 +16,9 @@ public class Order:BaseEntity
     public SupplementOrderStatus Status { get; set; } = SupplementOrderStatus.Pending;
 
     public ICollection<OrderSupplement> OrderSupplements { get; set; }
-   
+
+    public Guid? SubscriptionPlanId { get; set; }        // alına bilən plan
+    public SubscriptionPlan? SubscriptionPlan { get; set; }
+
+
 }

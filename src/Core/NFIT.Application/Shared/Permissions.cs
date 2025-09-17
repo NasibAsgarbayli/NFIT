@@ -50,6 +50,14 @@ public class Permissions
             GetAllPermissions
         };
     }
+    public static class Order
+    {
+        public const string ViewSales = "Order.ViewSales";
 
+        public static List<string> All = new()
+        {
+            ViewSales
+        };
+    }
 }
 

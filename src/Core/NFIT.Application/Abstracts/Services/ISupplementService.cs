@@ -1,4 +1,5 @@
-﻿using NFIT.Application.DTOs.SupplementDtos;
+﻿using Microsoft.AspNetCore.Http;
+using NFIT.Application.DTOs.SupplementDtos;
 using NFIT.Application.Shared;
 
 namespace NFIT.Application.Abstracts.Services;
@@ -17,4 +18,7 @@ public interface ISupplementService
 
     // Favorit sayına görə ən populyar (top N)
     Task<BaseResponse<List<SupplementGetDto>>> GetPopularSupplementsAsync(int top = 10);
+
+    Task<BaseResponse<string>> AddImageAsync(Guid supplementId, SupplementImageUploadDto dto);
+    Task<BaseResponse<string>> DeleteImageAsync(Guid supplementId, Guid imageId);
 }

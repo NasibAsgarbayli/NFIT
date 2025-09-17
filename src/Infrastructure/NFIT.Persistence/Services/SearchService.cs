@@ -78,11 +78,18 @@ public class SearchService:ISearchService
             {
                 q = q.Where(g =>
                     selectedCatIds.All(selId =>
-                        g.GymCategories.Any(gc => gc.CategoryId == selId)));
+                        g.GymCategories
+                         .Any(gc => !gc.IsDeleted &&
+                                    !gc.Category.IsDeleted &&
+                                    gc.CategoryId == selId)));
             }
             else
             {
-                q = q.Where(g => g.GymCategories.Any(gc => selectedCatIds.Contains(gc.CategoryId)));
+                q = q.Where(g =>
+                    g.GymCategories
+                     .Any(gc => !gc.IsDeleted &&
+                                !gc.Category.IsDeleted &&
+                                selectedCatIds.Contains(gc.CategoryId)));
             }
         }
 

@@ -25,11 +25,6 @@ public class MembershipConfiguration : IEntityTypeConfiguration<Membership>
                .HasForeignKey(m => m.UserId)
                .OnDelete(DeleteBehavior.Restrict);
 
-        // ➤ Membership -> Gym
-        builder.HasOne(m => m.GYM)
-               .WithMany()
-               .HasForeignKey(m => m.GymId)
-               .OnDelete(DeleteBehavior.Restrict);
 
         // ➤ Membership -> SubscriptionPlan
         builder.HasOne(m => m.SubscriptionPlan)

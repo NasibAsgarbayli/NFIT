@@ -167,22 +167,44 @@ public class GymService:IGymService
         gym.IsActive = dto.IsActive;
         gym.UpdatedAt = DateTime.UtcNow;
 
-        // sync categories (join)
+        // ------- sync categories (SOFT DELETE ilə) -------
         var newCatIds = dto.CategoryIds.Distinct().ToHashSet();
         gym.GymCategories ??= new List<GymCategory>();
 
-        var toRemove = gym.GymCategories.Where(gc => !newCatIds.Contains(gc.CategoryId)).ToList();
-        foreach (var rc in toRemove) _context.GymCategories.Remove(rc);
+        // soft-remove köhnələr
+        var toRemove = gym.GymCategories
+            .Where(gc => !gc.IsDeleted && !newCatIds.Contains(gc.CategoryId))
+            .ToList();
 
-        var existingCatIds = gym.GymCategories.Select(gc => gc.CategoryId).ToHashSet();
-        var toAdd = newCatIds.Except(existingCatIds);
-        foreach (var catId in toAdd)
-            gym.GymCategories.Add(new GymCategory { GymId = gym.Id, CategoryId = catId });
+        foreach (var rc in toRemove)
+        {
+            rc.IsDeleted = true;
+            rc.UpdatedAt = DateTime.UtcNow;
+        }
+        if (toRemove.Count > 0) _context.GymCategories.UpdateRange(toRemove);
 
-        // sync subscriptions (collection)
+        // add missing (yalnız living categories)
+        var existingCatIds = gym.GymCategories
+            .Where(gc => !gc.IsDeleted)
+            .Select(gc => gc.CategoryId)
+            .ToHashSet();
+
+        var idsToAdd = newCatIds.Except(existingCatIds).ToList();
+        if (idsToAdd.Count > 0)
+        {
+            var validCatIds = await _context.Categories
+                .Where(c => idsToAdd.Contains(c.Id) && !c.IsDeleted)
+                .Select(c => c.Id)
+                .ToListAsync();
+
+            foreach (var catId in validCatIds)
+                gym.GymCategories.Add(new GymCategory { GymId = gym.Id, CategoryId = catId });
+        }
+
+        // ------- sync subscriptions (collection) -------
         var newSubIds = dto.SubscriptionPlanIds.Distinct().ToHashSet();
 
-        // remove old
+        // remove old (filter living only)
         gym.AvailableSubscriptions = gym.AvailableSubscriptions
             .Where(s => newSubIds.Contains(s.Id))
             .ToList();
@@ -200,7 +222,6 @@ public class GymService:IGymService
 
         return new BaseResponse<string>("Gym updated", HttpStatusCode.OK);
     }
-
     // SOFT DELETE
     public async Task<BaseResponse<string>> DeleteAsync(Guid id)
     {
@@ -232,12 +253,10 @@ public class GymService:IGymService
 
         // category names
         var categoryIds = gym.GymCategories?.Select(gc => gc.CategoryId).ToList() ?? new();
-        var categoryNames = categoryIds.Count == 0
-            ? new List<string>()
-            : await _context.Categories
-                .Where(c => !c.IsDeleted && categoryIds.Contains(c.Id))
-                .Select(c => c.Name)
-                .ToListAsync();
+        var categoryNames = await _context.GymCategories
+     .Where(gc => gc.GymId == gym.Id && !gc.IsDeleted && !gc.Category.IsDeleted)
+     .Select(gc => gc.Category.Name)
+     .ToListAsync();
 
         var dto = new GymDetailsDto
         {
@@ -292,7 +311,7 @@ public class GymService:IGymService
                 IsPremium = g.IsPremium,
                 IsActive = g.IsActive,
                 Rating = g.Rating,
-                CategoryCount = g.GymCategories.Count,
+                CategoryCount = g.GymCategories.Count(gc => !gc.IsDeleted && !gc.Category.IsDeleted),
                 SubscriptionCount = g.AvailableSubscriptions.Count
             })
             .ToListAsync();

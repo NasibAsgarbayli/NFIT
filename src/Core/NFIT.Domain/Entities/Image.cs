@@ -10,4 +10,7 @@ public class Image:BaseEntity
     public Guid? SupplementId { get; set; }
     public Supplement? Supplement { get; set; }
 
+    public Guid? TrainerId { get; set; }
+    public Trainer? Trainer { get;set; }
+
 }

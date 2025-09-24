@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NFIT.Persistence.Contexts;
 
@@ -11,9 +12,11 @@ using NFIT.Persistence.Contexts;
 namespace NFIT.Persistence.Migrations
 {
     [DbContext(typeof(NFITDbContext))]
-    partial class NFITDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250924211622_AddTrainerImagesRelation")]
+    partial class AddTrainerImagesRelation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1577,8 +1580,7 @@ namespace NFIT.Persistence.Migrations
 
                     b.HasOne("NFIT.Domain.Entities.Trainer", "Trainer")
                         .WithMany("Images")
-                        .HasForeignKey("TrainerId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .HasForeignKey("TrainerId");
 
                     b.Navigation("Gym");
 
@@ -1685,9 +1687,9 @@ namespace NFIT.Persistence.Migrations
             modelBuilder.Entity("NFIT.Domain.Entities.Trainer", b =>
                 {
                     b.HasOne("NFIT.Domain.Entities.AppUser", "User")
-                        .WithMany("Trainers")
+                        .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("User");
@@ -1762,8 +1764,6 @@ namespace NFIT.Persistence.Migrations
                     b.Navigation("Orders");
 
                     b.Navigation("Reviews");
-
-                    b.Navigation("Trainers");
                 });
 
             modelBuilder.Entity("NFIT.Domain.Entities.District", b =>

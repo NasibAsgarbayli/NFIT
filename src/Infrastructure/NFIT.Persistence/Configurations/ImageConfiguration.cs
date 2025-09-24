@@ -26,5 +26,11 @@ public class ImageConfiguration : IEntityTypeConfiguration<Image>
                .WithMany(s => s.Images)
                .HasForeignKey(i => i.SupplementId)
                .OnDelete(DeleteBehavior.Restrict);
+
+        // ➤ Optional: Image -> Supplement
+        builder.HasOne(i => i.Trainer)
+               .WithMany(s => s.Images)
+               .HasForeignKey(i => i.TrainerId)
+               .OnDelete(DeleteBehavior.Restrict);
     }
 }

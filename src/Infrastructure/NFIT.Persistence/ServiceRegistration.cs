@@ -49,6 +49,9 @@ public static class ServiceRegistration
         services.AddScoped<IGymQrCodeService, GymQrCodeService>();
         services.AddScoped<IOrderService, OrderService>();
         services.AddScoped<IMembershipService, MembershipService>();
+        services.AddScoped<IWorkoutService, WorkoutService>();
+        services.AddScoped<IExerciseService, ExerciseService>();
+        services.AddScoped<ITrainerService, TrainerService>();
        
         #endregion
     }

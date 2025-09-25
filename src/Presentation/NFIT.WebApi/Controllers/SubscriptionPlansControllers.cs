@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.SubscriptionPlanDtos;
@@ -17,6 +18,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPost]
+        [Authorize(Policy =Permissions.Subscription.Create)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status409Conflict)]
         public async Task<IActionResult> Create([FromBody] SubscriptionPlanCreateDto dto)
@@ -26,6 +28,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPut("{id:guid}")]
+        [Authorize(Policy = Permissions.Subscription.Update)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status409Conflict)]
@@ -37,6 +40,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpDelete("{id:guid}")]
+        [Authorize(Policy = Permissions.Subscription.Delete)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete(Guid id)
@@ -46,6 +50,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("Get All")]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(BaseResponse<List<SubscriptionPlanGetDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<SubscriptionPlanGetDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetAll()
@@ -55,6 +60,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("{getbyid:guid}")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<SubscriptionPlanGetDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<SubscriptionPlanGetDto>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetById(Guid id)
@@ -64,6 +70,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("by-name")]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(BaseResponse<SubscriptionPlanGetDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<SubscriptionPlanGetDto>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetByName([FromQuery] string name)
@@ -73,6 +80,7 @@ namespace NFIT.WebApi.Controllers
         }
         /// <summary>Ən ucuz plan</summary>
         [HttpGet("cheapest")]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(BaseResponse<SubscriptionPlanGetDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<SubscriptionPlanGetDto>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetCheapest()
@@ -83,6 +91,7 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>Ən bahalı plan</summary>
         [HttpGet("most-expensive")]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(BaseResponse<SubscriptionPlanGetDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<SubscriptionPlanGetDto>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetMostExpensive()
@@ -94,6 +103,7 @@ namespace NFIT.WebApi.Controllers
         /// <summary>Planları gym sayına görə sırala</summary>
         /// <param name="descending">default: true (azalan). false versən – artan qaytarar</param>
         [HttpGet("by-gym-count")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<SubscriptionPlanGetDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<SubscriptionPlanGetDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetByGymCount([FromQuery] bool descending = true)

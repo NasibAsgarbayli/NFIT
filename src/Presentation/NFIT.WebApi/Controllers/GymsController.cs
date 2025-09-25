@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.GymDtos;
@@ -19,6 +20,7 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>Create a new gym</summary>
         [HttpPost]
+        [Authorize(Policy =Permissions.Gym.Create)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status409Conflict)]
@@ -30,7 +32,8 @@ namespace NFIT.WebApi.Controllers
 
         [HttpPost("{id:guid}/images")]
         [Consumes("multipart/form-data")]               
-        [RequestSizeLimit(20_000_000)]                   
+        [RequestSizeLimit(20_000_000)]
+        [Authorize(Policy = Permissions.Gym.AddImage)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
@@ -45,8 +48,11 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>Soft delete a gym</summary>
         [HttpDelete("{id:guid}")]
+        [Authorize(Policy = Permissions.Gym.Delete)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
+
         public async Task<IActionResult> Delete([FromRoute] Guid id)
         {
             var result = await _gymService.DeleteAsync(id);
@@ -54,7 +60,9 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpDelete("{id:guid}/images/{imageId:guid}")]
+        [Authorize(Policy = Permissions.Gym.DeleteImage)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> DeleteImage([FromRoute] Guid id, [FromRoute] Guid imageId)
         {
             var result = await _gymService.DeleteImageAsync(id, imageId);
@@ -63,6 +71,7 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>Get gym details by id</summary>
         [HttpGet("{id:guid}")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<GymDetailsDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<GymDetailsDto>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetById([FromRoute] Guid id)
@@ -73,6 +82,7 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>Get paginated list of gyms</summary>
         [HttpGet]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<GymListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<GymListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
@@ -82,6 +92,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPut("{id:guid}")]
+        [Authorize(Policy = Permissions.Gym.Update)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]

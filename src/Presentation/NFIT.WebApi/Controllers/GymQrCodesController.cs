@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using System.Net;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NFIT.Application.Abstracts.Services;
@@ -17,26 +18,35 @@ namespace NFIT.WebApi.Controllers
         }
 
         // ======= GET =======
+
+        /// <summary>Gym üçün aktiv QR kodu gətir</summary>
         [HttpGet("active")]
-        public async Task<IActionResult> GetActive(Guid gymId)
+        [Authorize]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
+        public async Task<IActionResult> GetActive([FromQuery] Guid gymId)
         {
             var r = await _service.GetActiveAsync(gymId);
             return StatusCode((int)r.StatusCode, r);
         }
 
-        // ======= CREATE/ROTATE =======
-        //[Authorize(Policy = Permissions.Gym.ManageQr)]
+        /// <summary>Gym üçün yeni QR yarat və ya mövcudunu rotasiya et</summary>
         [HttpPost("rotate")]
-        public async Task<IActionResult> Rotate(Guid gymId)
+        [Authorize]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
+        public async Task<IActionResult> Rotate([FromQuery] Guid gymId)
         {
             var r = await _service.GenerateOrRotateAsync(gymId);
             return StatusCode((int)r.StatusCode, r);
         }
 
-        // ======= DEACTIVATE =======
-        //[Authorize(Policy = Permissions.Gym.ManageQr)]
+        /// <summary>Gym üçün aktiv QR kodu deaktiv et</summary>
         [HttpPost("deactivate")]
-        public async Task<IActionResult> Deactivate(Guid gymId)
+        [Authorize]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
+        public async Task<IActionResult> Deactivate([FromQuery] Guid gymId)
         {
             var r = await _service.DeactivateAsync(gymId);
             return StatusCode((int)r.StatusCode, r);

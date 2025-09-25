@@ -23,6 +23,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetAll([FromQuery] TrainerFilterDto filter)
@@ -32,6 +33,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("{id:guid}")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<TrainerGetDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<TrainerGetDto>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetById(Guid id)
@@ -41,6 +43,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("top")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetTop([FromQuery] int top = 10)
@@ -61,6 +64,7 @@ namespace NFIT.WebApi.Controllers
 
         // ===================== TRAINER: C/U/D =====================
         [HttpPost]
+        [Authorize(Policy =Permissions.Trainer.Create)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status400BadRequest)]
@@ -71,6 +75,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPut]
+        [Authorize(Policy = Permissions.Trainer.Update)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
@@ -81,6 +86,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpDelete("{id:guid}")]
+        [Authorize(Policy = Permissions.Trainer.Delete)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
@@ -92,6 +98,7 @@ namespace NFIT.WebApi.Controllers
 
         // ===================== Verify / Active =====================
         [HttpPost("{id:guid}/verify")]
+        [Authorize(Policy = Permissions.Trainer.Verify)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
@@ -102,6 +109,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPost("{id:guid}/toggle-active")]
+        [Authorize(Policy = Permissions.Trainer.ToggleActive)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
@@ -114,6 +122,7 @@ namespace NFIT.WebApi.Controllers
         // ===================== TRAINER IMAGES =====================
         [HttpPost("{trainerId:guid}/images")]
         [Consumes("multipart/form-data")]
+        [Authorize(Policy = Permissions.Trainer.AddImageAsync)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
@@ -127,6 +136,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpDelete("{trainerId:guid}/images/{imageId:guid}")]
+        [Authorize(Policy = Permissions.Trainer.DeleteImageAsync)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
@@ -148,6 +158,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("{trainerId:guid}/videos")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerVideoListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerVideoListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetTrainerVideos(Guid trainerId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
@@ -157,6 +168,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("videos/{videoId:guid}")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<TrainerVideoGetDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<TrainerVideoGetDto>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetVideoById(Guid videoId)
@@ -166,6 +178,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("videos/feed")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerVideoListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerVideoListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetVideoFeed([FromQuery] TrainerVideoFeedFilterDto filter)
@@ -175,7 +188,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("videos/recent")]
-        [AllowAnonymous]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerVideoListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerVideoListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetRecentVideos([FromQuery] int days = 30, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
@@ -185,7 +198,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("videos/popular")]
-        [AllowAnonymous]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerVideoListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerVideoListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetPopularVideos([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
@@ -195,6 +208,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPost("videos")]
+        [Authorize(Policy = Permissions.Trainer.CreateVideo)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status400BadRequest)]
@@ -205,6 +219,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPut("videos")]
+        [Authorize(Policy = Permissions.Trainer.UpdateVideo)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
@@ -215,6 +230,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpDelete("videos/{videoId:guid}")]
+        [Authorize(Policy = Permissions.Trainer.DeleteVideo)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
@@ -226,6 +242,7 @@ namespace NFIT.WebApi.Controllers
 
         [HttpPost("videos/{videoId:guid}/upload")]
         [Consumes("multipart/form-data")]
+        [Authorize(Policy = Permissions.Trainer.UploadVideo)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
@@ -238,6 +255,7 @@ namespace NFIT.WebApi.Controllers
 
         [HttpPost("videos/{videoId:guid}/thumbnail")]
         [Consumes("multipart/form-data")]
+        [Authorize(Policy = Permissions.Trainer.UploadVideoThumb)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
@@ -250,6 +268,7 @@ namespace NFIT.WebApi.Controllers
 
         // ===================== WORKOUTS =====================
         [HttpGet("{trainerId:guid}/workouts")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerWorkoutListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerWorkoutListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetTrainerWorkouts(Guid trainerId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
@@ -259,6 +278,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("workouts/{workoutId:guid}")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<TrainerWorkoutGetDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<TrainerWorkoutGetDto>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetWorkoutById(Guid workoutId)
@@ -268,6 +288,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("workouts/feed")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerWorkoutListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerWorkoutListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetWorkoutFeed([FromQuery] TrainerWorkoutFilterDto filter)
@@ -277,7 +298,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("workouts/searchbyname")]
-        [AllowAnonymous]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerWorkoutListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerWorkoutListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetWorkoutsByName([FromQuery] string name)
@@ -287,7 +308,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("workouts/by-difficulty")]
-        [AllowAnonymous]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerWorkoutListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerWorkoutListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetWorkoutsByDifficulty([FromQuery] DifficultyLevel level,
@@ -298,7 +319,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("workouts/by-category")]
-        [AllowAnonymous]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerWorkoutListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<TrainerWorkoutListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetWorkoutsByCategory([FromQuery] WorkoutCategory category,
@@ -309,6 +330,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPost("workouts")]
+        [Authorize(Policy = Permissions.Trainer.CreateWorkout)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status403Forbidden)]
@@ -319,6 +341,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPut("workouts")]
+        [Authorize(Policy = Permissions.Trainer.UpdateWorkout)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
@@ -329,6 +352,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpDelete("workouts/{workoutId:guid}")]
+        [Authorize(Policy = Permissions.Trainer.DeleteWorkout)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
@@ -340,6 +364,7 @@ namespace NFIT.WebApi.Controllers
 
         [HttpPost("workouts/{workoutId:guid}/thumbnail")]
         [Consumes("multipart/form-data")]
+        [Authorize(Policy = Permissions.Trainer.UploadWorkoutThumb)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
@@ -352,6 +377,7 @@ namespace NFIT.WebApi.Controllers
 
         [HttpPost("workouts/{workoutId:guid}/preview")]
         [Consumes("multipart/form-data")]
+        [Authorize(Policy = Permissions.Trainer.UploadWorkoutPreview)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]

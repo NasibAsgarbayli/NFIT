@@ -1,7 +1,10 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using System.Net;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.WorkoutDtos;
+using NFIT.Application.Shared;
 using NFIT.Domain.Enums;
 
 namespace NFIT.WebApi.Controllers
@@ -19,6 +22,10 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>Bütün workout-lar</summary>
         [HttpGet]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]
         public async Task<IActionResult> GetAll()
         {
             var r = await _service.GetAllAsync();
@@ -27,6 +34,10 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>Id-ə görə workout detalı (exercise xəttləri ilə)</summary>
         [HttpGet("{id:guid}")]
+        [Authorize]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]
         public async Task<IActionResult> GetById(Guid id)
         {
             var r = await _service.GetByIdAsync(id);
@@ -35,6 +46,10 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>Kateqoriyaya görə workout-lar</summary>
         [HttpGet("by-category")]
+        [Authorize]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]
         public async Task<IActionResult> GetByCategory([FromQuery] WorkoutCategory category)
         {
             var r = await _service.GetByCategoryAsync(category);
@@ -44,8 +59,11 @@ namespace NFIT.WebApi.Controllers
         // ===================== CREATE =====================
 
         /// <summary>Yeni workout yarat (içindəki exercise xəttləri ilə birlikdə)</summary>
-        // [Authorize(Policy = "Workouts.Create")] // lazımdırsa aç
         [HttpPost]
+        [Authorize(Policy = Permissions.Workout.Create)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status409Conflict)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> Create([FromBody] WorkoutCreateDto dto)
         {
             var r = await _service.CreateAsync(dto);
@@ -55,8 +73,12 @@ namespace NFIT.WebApi.Controllers
         // ===================== UPDATE =====================
 
         /// <summary>Workout yenilə (xəttlər tam sinxronlanır)</summary>
-        // [Authorize(Policy = "Workouts.Update")]
         [HttpPut]
+        [Authorize(Policy = Permissions.Workout.Update)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status409Conflict)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> Update([FromBody] WorkoutUpdateDto dto)
         {
             var r = await _service.UpdateAsync(dto);
@@ -66,8 +88,10 @@ namespace NFIT.WebApi.Controllers
         // ===================== DELETE =====================
 
         /// <summary>Workout sil (soft delete)</summary>
-        // [Authorize(Policy = "Workouts.Delete")]
         [HttpDelete("{id:guid}")]
+        [Authorize(Policy =Permissions.Workout.Delete)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
         public async Task<IActionResult> Delete(Guid id)
         {
             var r = await _service.DeleteAsync(id);

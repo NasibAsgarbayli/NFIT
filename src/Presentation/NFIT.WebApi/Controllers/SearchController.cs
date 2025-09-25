@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.GymDtos;
@@ -18,6 +19,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("gyms")]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(BaseResponse<List<GymListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<GymListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> SearchGyms([FromQuery] SearchGymsRequest request)

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.GymChechkInDtos;
+using NFIT.Application.Shared;
 
 namespace NFIT.WebApi.Controllers
 {
@@ -16,33 +17,60 @@ namespace NFIT.WebApi.Controllers
             _service = service;
         }
         // ===== GET =====
+        [Authorize]
         [HttpGet("me/active")]
+        [ProducesResponseType(typeof(BaseResponse<CheckInGetDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(BaseResponse<CheckInGetDto>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<CheckInGetDto>), StatusCodes.Status401Unauthorized)]
         public async Task<IActionResult> MyActive()
-            => StatusCode((int)(await _service.GetMyActiveAsync()).StatusCode,
-                          await _service.GetMyActiveAsync());
+        {
+            var result = await _service.GetMyActiveAsync();
+            return StatusCode((int)result.StatusCode, result);
+        }
 
+        [Authorize]
         [HttpGet("me/history")]
+        [ProducesResponseType(typeof(BaseResponse<List<CheckInGetDto>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(BaseResponse<List<CheckInGetDto>>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<List<CheckInGetDto>>), StatusCodes.Status401Unauthorized)]
         public async Task<IActionResult> MyHistory([FromQuery] int days = 30)
-            => StatusCode((int)(await _service.GetMyHistoryAsync(days)).StatusCode,
-                          await _service.GetMyHistoryAsync(days));
+        {
+            var result = await _service.GetMyHistoryAsync(days);
+            return StatusCode((int)result.StatusCode, result);
+        }
 
-        [HttpGet("gyms/{gymId:guid}/occupancy")]
+        [AllowAnonymous] // zalın sıxlığını hamı görə bilər
+        [HttpGet("gyms/{gymId:guid}/occupancy(active users count)")]
+        [ProducesResponseType(typeof(BaseResponse<int>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(BaseResponse<int>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Occupancy(Guid gymId)
-            => StatusCode((int)(await _service.GetCurrentOccupancyAsync(gymId)).StatusCode,
-                          await _service.GetCurrentOccupancyAsync(gymId));
+        {
+            var result = await _service.GetCurrentOccupancyAsync(gymId);
+            return StatusCode((int)result.StatusCode, result);
+        }
 
         // ===== CREATE (Check-In) =====
         [Authorize]
         [HttpPost]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status401Unauthorized)]
         public async Task<IActionResult> CheckIn([FromBody] CheckInRequestDto dto)
-            => StatusCode((int)(await _service.CheckInAsync(dto)).StatusCode,
-                          await _service.CheckInAsync(dto));
+        {
+            var result = await _service.CheckInAsync(dto);
+            return StatusCode((int)result.StatusCode, result);
+        }
 
         // ===== UPDATE (Check-Out) =====
         [Authorize]
         [HttpPost("checkout")]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status401Unauthorized)]
         public async Task<IActionResult> CheckOut([FromBody] CheckOutRequestDto dto)
-            => StatusCode((int)(await _service.CheckOutAsync(dto)).StatusCode,
-                          await _service.CheckOutAsync(dto));
+        {
+            var result = await _service.CheckOutAsync(dto);
+            return StatusCode((int)result.StatusCode, result);
+        }
     }
 }

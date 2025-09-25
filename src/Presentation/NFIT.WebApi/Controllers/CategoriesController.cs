@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.CategoryDtos;
@@ -18,6 +19,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPost]
+        [Authorize(Policy =Permissions.Category.Create)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status409Conflict)]
         public async Task<IActionResult> Create([FromBody] CategoryCreateDto dto)
@@ -27,6 +29,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPut("{id:guid}")]
+        [Authorize(Policy = Permissions.Category.Update)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status409Conflict)]
@@ -38,6 +41,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpDelete("{id:guid}")]
+        [Authorize(Policy = Permissions.Category.Delete)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete([FromRoute] Guid id)
@@ -47,6 +51,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet("{id:guid}")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<CategoryGetDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<CategoryGetDto>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetById([FromRoute] Guid id)
@@ -56,6 +61,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpGet]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(BaseResponse<List<CategoryGetDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<CategoryGetDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetAll()
@@ -65,6 +71,7 @@ namespace NFIT.WebApi.Controllers
         }
         /// <summary>Ada görə category tap</summary>
         [HttpGet("by-name")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<CategoryGetDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<CategoryGetDto>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetByName([FromQuery] string name)
@@ -75,6 +82,7 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>ID ilə category-ni, bağlı gym-larla birlikdə gətir</summary>
         [HttpGet("{id:guid}/with-gyms")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<CategoryWithGymsDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<CategoryWithGymsDto>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetByIdWithGyms([FromRoute] Guid id)
@@ -85,6 +93,7 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>Aktiv category sayı</summary>
         [HttpGet("count")]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(BaseResponse<int>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetCount()
         {

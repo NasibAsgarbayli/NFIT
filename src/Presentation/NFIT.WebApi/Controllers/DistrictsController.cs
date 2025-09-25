@@ -21,6 +21,7 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>Aktiv rayonların siyahısı</summary>
         [HttpGet]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(BaseResponse<List<DistrictGetDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<DistrictGetDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetAll()
@@ -33,6 +34,7 @@ namespace NFIT.WebApi.Controllers
 
         /// <summary>Rayondakı aktiv gym sayını gətirir</summary>
         [HttpGet("{id:guid}/gym-count")]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(BaseResponse<int>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<int>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetGymCount(Guid id)
@@ -46,8 +48,10 @@ namespace NFIT.WebApi.Controllers
         /// <summary>Yeni rayon əlavə et</summary>
         //[Authorize(Policy = Permissions.District.Create)]
         [HttpPost]
+        [Authorize(Policy = Permissions.District.Create)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status409Conflict)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> Create([FromBody] DistrictCreateDto dto)
         {
             var r = await _service.CreateAsync(dto);
@@ -59,6 +63,7 @@ namespace NFIT.WebApi.Controllers
         /// <summary>Rayon məlumatını yenilə</summary>
         //[Authorize(Policy = Permissions.District.Update)]
         [HttpPut("{id:guid}")]
+        [Authorize(Policy = Permissions.District.Update)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status409Conflict)]
@@ -72,6 +77,7 @@ namespace NFIT.WebApi.Controllers
         /// <summary>Rayonu deaktiv et (seçilə bilməz)</summary>
         //[Authorize(Policy = Permissions.District.Deactivate)]
         [HttpPost("{id:guid}/deactivate")]
+        [Authorize(Policy = Permissions.District.Deactivate)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Deactivate(Guid id)
@@ -85,6 +91,7 @@ namespace NFIT.WebApi.Controllers
         /// <summary>Rayonu sil (soft delete + deaktivasiya)</summary>
         //[Authorize(Policy = Permissions.District.Delete)]
         [HttpDelete("{id:guid}")]
+        [Authorize(Policy = Permissions.District.Delete)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete(Guid id)

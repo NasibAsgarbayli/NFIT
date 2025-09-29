@@ -13,51 +13,84 @@ public class GymService:IGymService
 {
     private readonly NFITDbContext _context;
     private readonly IFileService _fileService;
+    private readonly IEmailService _emailService;
 
-    public GymService(NFITDbContext context, IFileService fileService)
+    public GymService(NFITDbContext context, IFileService fileService, IEmailService emailService)
     {
         _context = context;
         _fileService = fileService;
+        _emailService = emailService;
     }
 
     // CREATE
     public async Task<BaseResponse<Guid>> CreateAsync(GymCreateDto dto)
     {
+        if (dto == null)
+            return new BaseResponse<Guid>("Body is required", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<Guid>("Name is required", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (string.IsNullOrWhiteSpace(dto.Address))
+            return new BaseResponse<Guid>("Address is required", Guid.Empty, HttpStatusCode.BadRequest);
+
+        var name = dto.Name.Trim();
+        var address = dto.Address.Trim();
+        if (name.Length < 2 || name.Length > 120)
+            return new BaseResponse<Guid>("Name length must be between 2 and 120", Guid.Empty, HttpStatusCode.BadRequest);
+        if (address.Length < 5 || address.Length > 200)
+            return new BaseResponse<Guid>("Address length must be between 5 and 200", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // Koordinatlar (opsional verilibsə yoxla)
+        if (dto.Latitude is < -90 or > 90)
+            return new BaseResponse<Guid>("Latitude must be between -90 and 90", Guid.Empty, HttpStatusCode.BadRequest);
+        if (dto.Longitude is < -180 or > 180)
+            return new BaseResponse<Guid>("Longitude must be between -180 and 180", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // Sadə email / URL (opsional) — çox sərt deyil, minimal
+        if (!string.IsNullOrWhiteSpace(dto.Email) && !dto.Email.Contains('@'))
+            return new BaseResponse<Guid>("Invalid email", Guid.Empty, HttpStatusCode.BadRequest);
+
         // District check
         var districtExists = await _context.Districts.AnyAsync(d => d.Id == dto.DistrictId && !d.IsDeleted);
         if (!districtExists)
             return new BaseResponse<Guid>("District not found", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // Unique (Name + District)
-        var nameExists = await _context.Gyms
-            .AnyAsync(g => !g.IsDeleted &&
-                           g.DistrictId == dto.DistrictId &&
-                           g.Name != null &&
-                           g.Name.ToLower() == dto.Name.ToLower());
+        dto.CategoryIds ??= new List<Guid>();
+        dto.SubscriptionPlanIds ??= new List<Guid>();
+
+        // Unique (Name + District) — case-insensitive, invariant
+        var nameExists = await _context.Gyms.AnyAsync(g =>
+            !g.IsDeleted &&
+            g.DistrictId == dto.DistrictId &&
+            g.Name != null &&
+            string.Equals(g.Name.Trim(), name, StringComparison.InvariantCultureIgnoreCase));
         if (nameExists)
             return new BaseResponse<Guid>("Gym with same name already exists in this district", Guid.Empty, HttpStatusCode.Conflict);
 
         // Validate CategoryIds
-        if (dto.CategoryIds.Count > 0)
+        var catIds = dto.CategoryIds.Distinct().ToList();
+        if (catIds.Count > 0)
         {
             var found = await _context.Categories
-                .Where(c => !c.IsDeleted && dto.CategoryIds.Contains(c.Id))
+                .Where(c => !c.IsDeleted && catIds.Contains(c.Id))
                 .Select(c => c.Id)
                 .ToListAsync();
 
-            if (dto.CategoryIds.Except(found).Any())
+            if (catIds.Except(found).Any())
                 return new BaseResponse<Guid>("Some CategoryIds were not found", Guid.Empty, HttpStatusCode.BadRequest);
         }
 
         // Validate SubscriptionPlanIds
-        if (dto.SubscriptionPlanIds.Count > 0)
+        var subIds = dto.SubscriptionPlanIds.Distinct().ToList();
+        if (subIds.Count > 0)
         {
             var found = await _context.SubscriptionPlans
-                .Where(s => !s.IsDeleted && dto.SubscriptionPlanIds.Contains(s.Id))
+                .Where(s => !s.IsDeleted && subIds.Contains(s.Id))
                 .Select(s => s.Id)
                 .ToListAsync();
 
-            if (dto.SubscriptionPlanIds.Except(found).Any())
+            if (subIds.Except(found).Any())
                 return new BaseResponse<Guid>("Some SubscriptionPlanIds were not found", Guid.Empty, HttpStatusCode.BadRequest);
         }
 
@@ -65,9 +98,9 @@ public class GymService:IGymService
         var gym = new Gym
         {
             Id = id,
-            Name = dto.Name.Trim(),
+            Name = name,
             Description = dto.Description?.Trim(),
-            Address = dto.Address.Trim(),
+            Address = address,
             DistrictId = dto.DistrictId,
             Latitude = dto.Latitude,
             Longitude = dto.Longitude,
@@ -86,14 +119,14 @@ public class GymService:IGymService
         };
 
         // join: GymCategories
-        foreach (var catId in dto.CategoryIds.Distinct())
+        foreach (var catId in catIds)
             gym.GymCategories.Add(new GymCategory { GymId = id, CategoryId = catId });
 
         // collection: AvailableSubscriptions (attach existing)
-        if (dto.SubscriptionPlanIds.Count > 0)
+        if (subIds.Count > 0)
         {
             var subs = await _context.SubscriptionPlans
-                .Where(s => dto.SubscriptionPlanIds.Contains(s.Id) && !s.IsDeleted)
+                .Where(s => subIds.Contains(s.Id) && !s.IsDeleted)
                 .ToListAsync();
 
             foreach (var sp in subs)
@@ -102,6 +135,24 @@ public class GymService:IGymService
 
         await _context.Gyms.AddAsync(gym);
         await _context.SaveChangesAsync();
+
+        // Notification (best-effort)
+        try
+        {
+            var allEmails = await _context.Users
+                .Where(u => u.IsActive && u.EmailConfirmed && u.Email != null)
+                .Select(u => u.Email!)
+                .ToListAsync();
+
+            if (allEmails.Count > 0)
+            {
+                var subject = $"Yeni Gym əlavə olundu: {gym.Name}";
+                var body = $@"<p><strong>{gym.Name}</strong> artıq NFIT platformasında!</p>
+                          <p>Daha ətraflı məlumat üçün tətbiqimizə daxil olun.</p>";
+                await _emailService.SendEmailAsync(allEmails, subject, body);
+            }
+        }
+        catch { /* loglama varsa et; istifadəçiyə 201 verdik, email uğursuzluğunu uduruq */ }
 
         return new BaseResponse<Guid>("Gym created", id, HttpStatusCode.Created);
     }

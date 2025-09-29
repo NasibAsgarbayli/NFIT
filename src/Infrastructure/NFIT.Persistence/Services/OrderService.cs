@@ -45,14 +45,26 @@ public class OrderService:IOrderService
         if (string.IsNullOrWhiteSpace(UserId))
             return new BaseResponse<Guid>("Unauthorized", Guid.Empty, HttpStatusCode.Unauthorized);
 
-        if (dto.Items is null || dto.Items.Count == 0)
+        if (dto?.Items is null || dto.Items.Count == 0)
             return new BaseResponse<Guid>("Cart is empty", Guid.Empty, HttpStatusCode.BadRequest);
 
-        var ids = dto.Items.Select(i => i.SupplementId).ToHashSet();
+        // PaymentMethod enum yoxlaması
+        if (!Enum.IsDefined(typeof(PaymentMethod), dto.PaymentMethod))
+            return new BaseResponse<Guid>("Invalid payment method", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // Quantity > 0 olmalıdır və eyni product təkrarlanırsa, yığ (istəyə görə)
+        var merged = dto.Items
+            .GroupBy(i => i.SupplementId)
+            .Select(g => new { SupplementId = g.Key, Quantity = g.Sum(x => x.Quantity) })
+            .ToList();
+
+        if (merged.Any(x => x.Quantity <= 0))
+            return new BaseResponse<Guid>("Quantity must be greater than 0", Guid.Empty, HttpStatusCode.BadRequest);
+
+        var ids = merged.Select(i => i.SupplementId).ToHashSet();
         var supplements = await _context.Supplements
             .Where(s => ids.Contains(s.Id) && !s.IsDeleted && s.IsActive)
             .ToListAsync();
-
         if (supplements.Count != ids.Count)
             return new BaseResponse<Guid>("Some supplements not found or inactive", Guid.Empty, HttpStatusCode.BadRequest);
 
@@ -69,7 +81,8 @@ public class OrderService:IOrderService
         };
 
         decimal total = 0m;
-        foreach (var item in dto.Items)
+
+        foreach (var item in merged)
         {
             var sup = supplements.First(s => s.Id == item.SupplementId);
             var unit = sup.Price; // snapshot
@@ -81,12 +94,15 @@ public class OrderService:IOrderService
                 SupplementId = sup.Id,
                 SupplementPrice = unit,
                 OrderId = order.Id,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+               
             });
 
-            total += unit * item.Quantity;  // Quantity dto-dadır
-            // Stok azaldılması siyasətinə görə: Confirm zamanı da edə bilərsən.
-            // sup.StockQuantity -= item.Quantity;
+            total += unit * item.Quantity;
+
+            //(Opsional)Stok kifayətliliyi:
+            if (sup.StockQuantity < item.Quantity) return new BaseResponse<Guid>("Insufficient stock", Guid.Empty, HttpStatusCode.Conflict);
+            sup.StockQuantity -= item.Quantity; // Yaxşısı: Confirm zamanı azaltmaq
         }
 
         order.TotalPrice = total;
@@ -94,9 +110,7 @@ public class OrderService:IOrderService
         await _context.Orders.AddAsync(order);
         await _context.SaveChangesAsync();
 
-        // --- EMAIL: user + admin (PLACED) ---
         await SendPlacedEmailsAsync(order);
-
         return new BaseResponse<Guid>("Order created (pending)", order.Id, HttpStatusCode.Created);
     }
 
@@ -106,11 +120,15 @@ public class OrderService:IOrderService
         if (string.IsNullOrWhiteSpace(UserId))
             return new BaseResponse<Guid>("Unauthorized", Guid.Empty, HttpStatusCode.Unauthorized);
 
+        if (!Enum.IsDefined(typeof(PaymentMethod), dto.PaymentMethod))
+            return new BaseResponse<Guid>("Invalid payment method", Guid.Empty, HttpStatusCode.BadRequest);
+
         var plan = await _context.SubscriptionPlans
             .FirstOrDefaultAsync(p => p.Id == dto.SubscriptionPlanId && !p.IsDeleted);
-
         if (plan is null)
             return new BaseResponse<Guid>("Subscription plan not found", Guid.Empty, HttpStatusCode.NotFound);
+
+       
 
         var order = new Order
         {
@@ -127,9 +145,7 @@ public class OrderService:IOrderService
         await _context.Orders.AddAsync(order);
         await _context.SaveChangesAsync();
 
-        // --- EMAIL: user + admin (PLACED) ---
         await SendPlacedEmailsAsync(order);
-
         return new BaseResponse<Guid>("Subscription order created (pending)", order.Id, HttpStatusCode.Created);
     }
 
@@ -240,6 +256,9 @@ public class OrderService:IOrderService
     // ----------------- GET: Sales (Admin/Moderator) -----------------
     public async Task<BaseResponse<List<OrderGetDto>>> GetSalesAsync(SalesFilterDto? filter = null)
     {
+        if (filter?.From is not null && filter?.To is not null && filter.From > filter.To)
+            return new BaseResponse<List<OrderGetDto>>("Invalid date range", null, HttpStatusCode.BadRequest);
+
         var q = _context.Orders
             .Include(o => o.SubscriptionPlan)
             .Include(o => o.OrderSupplements).ThenInclude(os => os.Supplement)
@@ -260,9 +279,20 @@ public class OrderService:IOrderService
     // ----------------- UPDATE: Status -----------------
     public async Task<BaseResponse<string>> UpdateStatusAsync(Guid orderId, OrderStatusUpdateDto dto)
     {
+        if (!Enum.IsDefined(typeof(SupplementOrderStatus), dto.Status))
+            return new BaseResponse<string>("Invalid status", HttpStatusCode.BadRequest);
+
         var o = await _context.Orders.FirstOrDefaultAsync(x => x.Id == orderId && !x.IsDeleted);
         if (o is null)
             return new BaseResponse<string>("Order not found", HttpStatusCode.NotFound);
+
+        // Sadə keçid qaydası: Pending -> Delivered (və ya Cancelled)
+        if (o.Status == SupplementOrderStatus.Delivered)
+            return new BaseResponse<string>("Order already completed", HttpStatusCode.Conflict);
+
+        // (Opsional) Pending-dən başqa statuslara geriyə dönüşü blokla
+        if (o.Status != SupplementOrderStatus.Pending && dto.Status == SupplementOrderStatus.Pending)
+            return new BaseResponse<string>("Cannot revert to pending", HttpStatusCode.BadRequest);
 
         o.Status = dto.Status;
         o.UpdatedAt = DateTime.UtcNow;

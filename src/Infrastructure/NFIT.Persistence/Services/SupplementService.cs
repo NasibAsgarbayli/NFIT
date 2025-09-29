@@ -20,11 +20,28 @@ public class SupplementService:ISupplementService
     // CREATE
     public async Task<BaseResponse<Guid>> CreateAsync(SupplementCreateDto dto)
     {
+        if (dto == null)
+            return new BaseResponse<Guid>("Body is required", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<Guid>("Name is required", Guid.Empty, HttpStatusCode.BadRequest);
+
         var name = dto.Name.Trim();
+        if (name.Length < 2 || name.Length > 120)
+            return new BaseResponse<Guid>("Name length must be between 2 and 120", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (dto.Price < 0)
+            return new BaseResponse<Guid>("Price cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (dto.StockQuantity < 0)
+            return new BaseResponse<Guid>("StockQuantity cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (dto.Weight < 0)
+            return new BaseResponse<Guid>("Weight cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
 
         var dup = await _context.Supplements
-            .AnyAsync(s => !s.IsDeleted && s.Name.ToLower() == name.ToLower());
-
+            .AnyAsync(s => !s.IsDeleted && s.Name != null &&
+                           s.Name.Trim().ToLower() == name.ToLower());
         if (dup)
             return new BaseResponse<Guid>("Supplement name already exists", Guid.Empty, HttpStatusCode.Conflict);
 
@@ -38,7 +55,9 @@ public class SupplementService:ISupplementService
             Brand = dto.Brand?.Trim(),
             Flavor = dto.Flavor?.Trim(),
             Weight = dto.Weight,
-            IsActive = true
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
 
         await _context.Supplements.AddAsync(entity);
@@ -50,19 +69,37 @@ public class SupplementService:ISupplementService
     // UPDATE
     public async Task<BaseResponse<string>> UpdateAsync(SupplementUpdateDto dto)
     {
+        if (dto == null)
+            return new BaseResponse<string>("Body is required", HttpStatusCode.BadRequest);
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<string>("Name is required", HttpStatusCode.BadRequest);
+
         var entity = await _context.Supplements
             .FirstOrDefaultAsync(s => s.Id == dto.Id && !s.IsDeleted);
-
         if (entity is null)
             return new BaseResponse<string>("Supplement not found", HttpStatusCode.NotFound);
 
-        var dup = await _context.Supplements.AnyAsync(s =>
-            !s.IsDeleted && s.Id != dto.Id && s.Name.ToLower() == dto.Name.Trim().ToLower());
+        var name = dto.Name.Trim();
+        if (name.Length < 2 || name.Length > 120)
+            return new BaseResponse<string>("Name length must be between 2 and 120", HttpStatusCode.BadRequest);
 
+        if (dto.Price < 0)
+            return new BaseResponse<string>("Price cannot be negative", HttpStatusCode.BadRequest);
+
+        if (dto.StockQuantity < 0)
+            return new BaseResponse<string>("StockQuantity cannot be negative", HttpStatusCode.BadRequest);
+
+        if (dto.Weight < 0)
+            return new BaseResponse<string>("Weight cannot be negative", HttpStatusCode.BadRequest);
+
+        var dup = await _context.Supplements.AnyAsync(s =>
+            !s.IsDeleted && s.Id != dto.Id && s.Name != null &&
+            s.Name.Trim().ToLower() == name.ToLower());
         if (dup)
             return new BaseResponse<string>("Another supplement with same name exists", HttpStatusCode.Conflict);
 
-        entity.Name = dto.Name.Trim();
+        entity.Name = name;
         entity.Description = dto.Description?.Trim() ?? "";
         entity.Price = dto.Price;
         entity.StockQuantity = dto.StockQuantity;
@@ -121,13 +158,17 @@ public class SupplementService:ISupplementService
         if (filter != null)
         {
             if (!string.IsNullOrWhiteSpace(filter.Brand))
-                q = q.Where(s => s.Brand != null && s.Brand.ToLower() == filter.Brand!.Trim().ToLower());
+            {
+                var brand = filter.Brand.Trim().ToLower();
+                q = q.Where(s => s.Brand != null && s.Brand.ToLower() == brand);
+            }
 
             if (!string.IsNullOrWhiteSpace(filter.Search))
-                q = q.Where(s => EF.Functions.Like(s.Name, $"%{filter.Search!.Trim()}%"));
+            {
+                var term = filter.Search.Trim();
+                q = q.Where(s => EF.Functions.Like(s.Name!, $"%{term}%"));
+            }
         }
-
-        // Yalnız aktiv lazımdırsa: q = q.Where(s => s.IsActive);
 
         var list = await q.AsNoTracking()
             .OrderByDescending(s => s.CreatedAt)
@@ -143,9 +184,14 @@ public class SupplementService:ISupplementService
     // SEARCH BY NAME (shortcut)
     public async Task<BaseResponse<List<SupplementGetDto>>> SearchByNameAsync(string name)
     {
+        if (string.IsNullOrWhiteSpace(name))
+            return new BaseResponse<List<SupplementGetDto>>("Name is required", null, HttpStatusCode.BadRequest);
+
+        var term = name.Trim();
+
         var list = await _context.Supplements
             .Include(s => s.Favourites)
-            .Where(s => !s.IsDeleted && EF.Functions.Like(s.Name, $"%{name.Trim()}%"))
+            .Where(s => !s.IsDeleted && EF.Functions.Like(s.Name!, $"%{term}%"))
             .AsNoTracking()
             .OrderBy(s => s.Name)
             .Select(MapToDtoExpr)
@@ -160,9 +206,14 @@ public class SupplementService:ISupplementService
     // BY BRAND
     public async Task<BaseResponse<List<SupplementGetDto>>> GetByBrandAsync(string brand)
     {
+        if (string.IsNullOrWhiteSpace(brand))
+            return new BaseResponse<List<SupplementGetDto>>("Brand is required", null, HttpStatusCode.BadRequest);
+
+        var b = brand.Trim().ToLower();
+
         var list = await _context.Supplements
             .Include(s => s.Favourites)
-            .Where(s => !s.IsDeleted && s.Brand != null && s.Brand.ToLower() == brand.Trim().ToLower())
+            .Where(s => !s.IsDeleted && s.Brand != null && s.Brand.ToLower() == b)
             .AsNoTracking()
             .OrderBy(s => s.Name)
             .Select(MapToDtoExpr)

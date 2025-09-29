@@ -60,17 +60,25 @@ public class UserService:IUserService
 
     public async Task<BaseResponse<List<UserGetDto>>> GetAllAsync()
     {
-        var users = _userManager.Users.Select(u => new UserGetDto
+        var userEntities = _userManager.Users.ToList(); // materialize first
+
+        var userDtos = new List<UserGetDto>();
+
+        foreach (var u in userEntities)
         {
-            Id = u.Id,
-            FullName = u.FullName,
-            Email = u.Email,
+            var roles = await _userManager.GetRolesAsync(u); // istifadəçinin rolları
+            userDtos.Add(new UserGetDto
+            {
+                Id = u.Id,
+                FullName = u.FullName,
+                Email = u.Email,
+                Roles = roles.ToList()
+            });
+        }
 
-        }).ToList();
-
-        return new BaseResponse<List<UserGetDto>>("All Users:", users, HttpStatusCode.OK);
-
+        return new BaseResponse<List<UserGetDto>>("All Users:", userDtos, HttpStatusCode.OK);
     }
+    
 
     public async Task<BaseResponse<UserGetDto>> GetByIdAsync(Guid id)
     {

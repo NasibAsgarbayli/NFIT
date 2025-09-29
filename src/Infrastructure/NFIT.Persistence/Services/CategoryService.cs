@@ -20,17 +20,23 @@ public class CategoryService:ICategoryService
 
     public async Task<BaseResponse<Guid>> CreateAsync(CategoryCreateDto dto)
     {
-        // (opsional) eyni adı təkrarlamamaq üçün sadə yoxlama
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<Guid>("Name is required", Guid.Empty, HttpStatusCode.BadRequest);
+
+        var name = dto.Name.Trim();
+        if (name.Length > 100)
+            return new BaseResponse<Guid>("Name is too long (max 100)", Guid.Empty, HttpStatusCode.BadRequest);
+
         var exists = await _context.Categories
-            .AnyAsync(c => !c.IsDeleted && c.Name.ToLower() == dto.Name.ToLower());
+            .AnyAsync(c => !c.IsDeleted && c.Name.ToLower() == name.ToLower());
         if (exists)
             return new BaseResponse<Guid>("Category with this name already exists", Guid.Empty, HttpStatusCode.Conflict);
 
         var entity = new Category
         {
             Id = Guid.NewGuid(),
-            Name = dto.Name.Trim(),
-            Description = dto.Description?.Trim()
+            Name = name,
+            Description = (dto.Description ?? "").Trim()
         };
 
         await _context.Categories.AddAsync(entity);
@@ -43,20 +49,23 @@ public class CategoryService:ICategoryService
     {
         var category = await _context.Categories
             .FirstOrDefaultAsync(c => c.Id == dto.Id && !c.IsDeleted);
-
         if (category is null)
             return new BaseResponse<string>("Category not found", HttpStatusCode.NotFound);
 
-        // (opsional) ad unikallığı (özündən başqa)
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<string>("Name is required", HttpStatusCode.BadRequest);
+
+        var name = dto.Name.Trim();
+        if (name.Length > 100)
+            return new BaseResponse<string>("Name is too long (max 100)", HttpStatusCode.BadRequest);
+
         var exists = await _context.Categories
-            .AnyAsync(c => !c.IsDeleted &&
-                           c.Id != dto.Id &&
-                           c.Name.ToLower() == dto.Name.ToLower());
+            .AnyAsync(c => !c.IsDeleted && c.Id != dto.Id && c.Name.ToLower() == name.ToLower());
         if (exists)
             return new BaseResponse<string>("Category with this name already exists", HttpStatusCode.Conflict);
 
-        category.Name = dto.Name.Trim();
-        category.Description = dto.Description?.Trim();
+        category.Name = name;
+        category.Description = (dto.Description ?? "").Trim();
         category.UpdatedAt = DateTime.UtcNow;
 
         _context.Categories.Update(category);
@@ -64,7 +73,6 @@ public class CategoryService:ICategoryService
 
         return new BaseResponse<string>("Category updated", HttpStatusCode.OK);
     }
-
     public async Task<BaseResponse<string>> DeleteAsync(Guid id)
     {
         var category = await _context.Categories

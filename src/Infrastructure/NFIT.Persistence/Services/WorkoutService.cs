@@ -20,17 +20,37 @@ public class WorkoutService : IWorkoutService
     public async Task<BaseResponse<Guid>> CreateAsync(WorkoutCreateDto dto)
     {
         var name = dto.Name.Trim();
-        var dup = await _context.Workouts.AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == name.ToLower());
-        if (dup) return new BaseResponse<Guid>("Workout with same name exists", Guid.Empty, HttpStatusCode.Conflict);
+        var dup = await _context.Workouts
+            .AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == name.ToLower());
+        if (dup)
+            return new BaseResponse<Guid>("Workout with same name exists", Guid.Empty, HttpStatusCode.Conflict);
+
+        // ===== Enum yoxlamaları =====
+        if (!Enum.IsDefined(typeof(DifficultyLevel), dto.Difficulty))
+            return new BaseResponse<Guid>("Invalid difficulty level", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(WorkoutCategory), dto.Category))
+            return new BaseResponse<Guid>("Invalid workout category", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (dto.TargetMuscles is not null)
+        {
+            foreach (var muscle in dto.TargetMuscles)
+            {
+                if (!Enum.IsDefined(typeof(MuscleGroup), muscle))
+                    return new BaseResponse<Guid>("Invalid muscle group value", Guid.Empty, HttpStatusCode.BadRequest);
+            }
+        }
 
         // exercises yoxlama
         var validExercises = await _context.Exercises
             .Where(e => !e.IsDeleted && dto.Exercises.Select(x => x.ExerciseId).Contains(e.Id))
             .Select(e => e.Id)
             .ToListAsync();
+
         if (dto.Exercises.Any(x => !validExercises.Contains(x.ExerciseId)))
             return new BaseResponse<Guid>("Some exercises not found", Guid.Empty, HttpStatusCode.BadRequest);
 
+        // ===== Workout yarat =====
         var id = Guid.NewGuid();
         var workout = new Workout
         {
@@ -64,16 +84,55 @@ public class WorkoutService : IWorkoutService
     // UPDATE
     public async Task<BaseResponse<string>> UpdateAsync(WorkoutUpdateDto dto)
     {
+        // --- Guard-lar (ad + boş exercises) ---
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<string>("Name is required", HttpStatusCode.BadRequest);
+
+        if (dto.Exercises is null || dto.Exercises.Count == 0)
+            return new BaseResponse<string>("At least one exercise is required", HttpStatusCode.BadRequest);
+
         var w = await _context.Workouts
             .Include(x => x.WorkoutExercises)
             .FirstOrDefaultAsync(x => x.Id == dto.Id && !x.IsDeleted);
-        if (w == null) return new BaseResponse<string>("Workout not found", HttpStatusCode.NotFound);
 
-        var dup = await _context.Workouts.AnyAsync(x => !x.IsDeleted && x.Id != dto.Id &&
-                                                       x.Name.ToLower() == dto.Name.Trim().ToLower());
-        if (dup) return new BaseResponse<string>("Another workout with same name exists", HttpStatusCode.Conflict);
+        if (w == null)
+            return new BaseResponse<string>("Workout not found", HttpStatusCode.NotFound);
 
-        w.Name = dto.Name.Trim();
+        // Ad unikallığı (özündən başqa)
+        var name = dto.Name.Trim();
+        var dup = await _context.Workouts.AnyAsync(x =>
+            !x.IsDeleted && x.Id != dto.Id && x.Name.ToLower() == name.ToLower());
+        if (dup)
+            return new BaseResponse<string>("Another workout with same name exists", HttpStatusCode.Conflict);
+
+        // ===== Enum yoxlamaları =====
+        if (!Enum.IsDefined(typeof(DifficultyLevel), dto.Difficulty))
+            return new BaseResponse<string>("Invalid difficulty level", HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(WorkoutCategory), dto.Category))
+            return new BaseResponse<string>("Invalid workout category", HttpStatusCode.BadRequest);
+
+        if (dto.TargetMuscles is not null)
+        {
+            foreach (var muscle in dto.TargetMuscles)
+            {
+                if (!Enum.IsDefined(typeof(MuscleGroup), muscle))
+                    return new BaseResponse<string>("Invalid muscle group value", HttpStatusCode.BadRequest);
+            }
+        }
+
+        // ===== Exercises mövcudluq yoxlaması =====
+        var newIds = dto.Exercises.Select(x => x.ExerciseId).ToHashSet();
+        var validExercises = await _context.Exercises
+            .Where(e => !e.IsDeleted && newIds.Contains(e.Id))
+            .Select(e => e.Id)
+            .ToListAsync();
+
+        if (newIds.Except(validExercises).Any())
+            return new BaseResponse<string>("Some exercises not found", HttpStatusCode.BadRequest);
+
+        // ===== Update sahələri =====
+        w.Name = name;
         w.Description = dto.Description?.Trim() ?? "";
         w.EstimatedDuration = dto.EstimatedDuration;
         w.Difficulty = dto.Difficulty;
@@ -84,19 +143,9 @@ public class WorkoutService : IWorkoutService
         w.IsPublic = dto.IsPublic;
         w.UpdatedAt = DateTime.UtcNow;
 
-        // Exercises yenilə
-        var newIds = dto.Exercises.Select(x => x.ExerciseId).ToHashSet();
-        var validExercises = await _context.Exercises
-            .Where(e => !e.IsDeleted && newIds.Contains(e.Id))
-            .Select(e => e.Id)
-            .ToListAsync();
-        if (newIds.Except(validExercises).Any())
-            return new BaseResponse<string>("Some exercises not found", HttpStatusCode.BadRequest);
-
-        // köhnələri sil
+        // Köhnə exercise-ləri sil, yenilərini yaz
         _context.WorkoutExercises.RemoveRange(w.WorkoutExercises);
 
-        // yeniləri əlavə et
         w.WorkoutExercises = dto.Exercises.Select(x => new WorkoutExercise
         {
             Id = Guid.NewGuid(),

@@ -19,25 +19,54 @@ public class ExerciseService:IExerciseService
     // CREATE
     public async Task<BaseResponse<Guid>> CreateAsync(ExerciseCreateDto dto)
     {
+        if (dto == null)
+            return new BaseResponse<Guid>("Body is required", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<Guid>("Name is required", Guid.Empty, HttpStatusCode.BadRequest);
+
         var name = dto.Name.Trim();
+        if (name.Length < 2 || name.Length > 100)
+            return new BaseResponse<Guid>("Name length must be between 2 and 100", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // enum yoxlamaları
+        if (!Enum.IsDefined(typeof(DifficultyLevel), dto.Difficulty))
+            return new BaseResponse<Guid>("Invalid difficulty value", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(MuscleGroup), dto.PrimaryMuscleGroup))
+            return new BaseResponse<Guid>("Invalid primary muscle group", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (dto.SecondaryMuscleGroups != null)
+        {
+            foreach (var m in dto.SecondaryMuscleGroups)
+                if (!Enum.IsDefined(typeof(MuscleGroup), m))
+                    return new BaseResponse<Guid>("Invalid value in secondary muscle groups", Guid.Empty, HttpStatusCode.BadRequest);
+        }
 
         var dup = await _context.Exercises
             .AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == name.ToLower());
-
         if (dup)
             return new BaseResponse<Guid>("Exercise with same name already exists", Guid.Empty, HttpStatusCode.Conflict);
+
+        // secondary-ləri təmizlə (primary ilə üst-üstə düşməsin, dublikat olmasın)
+        var cleanedSecondary = dto.SecondaryMuscleGroups?
+            .Where(m => m != dto.PrimaryMuscleGroup)
+            .Distinct()
+            .ToArray();
 
         var e = new Exercise
         {
             Id = Guid.NewGuid(),
             Name = name,
-            Description = dto.Description?.Trim() ?? "",
+            Description = (dto.Description ?? "").Trim(),
             PrimaryMuscleGroup = dto.PrimaryMuscleGroup,
-            SecondaryMuscleGroups = dto.SecondaryMuscleGroups,
+            SecondaryMuscleGroups = cleanedSecondary,
             Equipment = dto.Equipment,
             VideoUrl = dto.VideoUrl?.Trim(),
             Difficulty = dto.Difficulty,
-            IsDeleted = false
+            IsDeleted = false,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
 
         await _context.Exercises.AddAsync(e);
@@ -47,22 +76,51 @@ public class ExerciseService:IExerciseService
     }
 
     // UPDATE
+    // UPDATE
     public async Task<BaseResponse<string>> UpdateAsync(ExerciseUpdateDto dto)
     {
+        if (dto == null)
+            return new BaseResponse<string>("Body is required", HttpStatusCode.BadRequest);
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<string>("Name is required", HttpStatusCode.BadRequest);
+
         var e = await _context.Exercises.FirstOrDefaultAsync(x => x.Id == dto.Id && !x.IsDeleted);
-        if (e is null)
+        if (e == null)
             return new BaseResponse<string>("Exercise not found", HttpStatusCode.NotFound);
 
-        var dup = await _context.Exercises.AnyAsync(x =>
-            !x.IsDeleted && x.Id != dto.Id && x.Name.ToLower() == dto.Name.Trim().ToLower());
+        var name = dto.Name.Trim();
+        if (name.Length < 2 || name.Length > 100)
+            return new BaseResponse<string>("Name length must be between 2 and 100", HttpStatusCode.BadRequest);
 
+        // enum yoxlamaları
+        if (!Enum.IsDefined(typeof(DifficultyLevel), dto.Difficulty))
+            return new BaseResponse<string>("Invalid difficulty value", HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(MuscleGroup), dto.PrimaryMuscleGroup))
+            return new BaseResponse<string>("Invalid primary muscle group", HttpStatusCode.BadRequest);
+
+        if (dto.SecondaryMuscleGroups != null)
+        {
+            foreach (var m in dto.SecondaryMuscleGroups)
+                if (!Enum.IsDefined(typeof(MuscleGroup), m))
+                    return new BaseResponse<string>("Invalid value in secondary muscle groups", HttpStatusCode.BadRequest);
+        }
+
+        var dup = await _context.Exercises.AnyAsync(x =>
+            !x.IsDeleted && x.Id != dto.Id && x.Name.ToLower() == name.ToLower());
         if (dup)
             return new BaseResponse<string>("Another exercise with same name exists", HttpStatusCode.Conflict);
 
-        e.Name = dto.Name.Trim();
-        e.Description = dto.Description?.Trim() ?? "";
+        var cleanedSecondary = dto.SecondaryMuscleGroups?
+            .Where(m => m != dto.PrimaryMuscleGroup)
+            .Distinct()
+            .ToArray();
+
+        e.Name = name;
+        e.Description = (dto.Description ?? "").Trim();
         e.PrimaryMuscleGroup = dto.PrimaryMuscleGroup;
-        e.SecondaryMuscleGroups = dto.SecondaryMuscleGroups;
+        e.SecondaryMuscleGroups = cleanedSecondary;
         e.Equipment = dto.Equipment;
         e.VideoUrl = dto.VideoUrl?.Trim();
         e.Difficulty = dto.Difficulty;
@@ -73,7 +131,6 @@ public class ExerciseService:IExerciseService
 
         return new BaseResponse<string>("Exercise updated", HttpStatusCode.OK);
     }
-
     // DELETE (soft)
     public async Task<BaseResponse<string>> DeleteAsync(Guid id)
     {
@@ -119,6 +176,9 @@ public class ExerciseService:IExerciseService
 
         if (list.Count == 0)
             return new BaseResponse<List<ExerciseGetDto>>("No exercises for this muscle group", null, HttpStatusCode.NotFound);
+
+        if (!Enum.IsDefined(typeof(MuscleGroup), muscle))
+            return new BaseResponse<List<ExerciseGetDto>>("Invalid muscle group", null, HttpStatusCode.BadRequest);
 
         return new BaseResponse<List<ExerciseGetDto>>("Exercises retrieved", list, HttpStatusCode.OK);
     }

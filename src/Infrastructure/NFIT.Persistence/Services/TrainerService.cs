@@ -51,19 +51,30 @@ public class TrainerService:ITrainerService
         if (string.IsNullOrWhiteSpace(userId))
             return new("Unauthorized", Guid.Empty, HttpStatusCode.Unauthorized);
 
+        if (string.IsNullOrWhiteSpace(dto.FirstName) || string.IsNullOrWhiteSpace(dto.LastName))
+            return new("FirstName and LastName are required", Guid.Empty, HttpStatusCode.BadRequest);
+
+        dto.FirstName = dto.FirstName.Trim();
+        dto.LastName = dto.LastName.Trim();
+        if (dto.FirstName.Length < 2 || dto.FirstName.Length > 60 ||
+            dto.LastName.Length < 2 || dto.LastName.Length > 60)
+            return new("Name parts must be 2-60 characters", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (dto.ExperienceYears < 0 || dto.ExperienceYears > 80)
+            return new("ExperienceYears must be between 0 and 80", Guid.Empty, HttpStatusCode.BadRequest);
+
         var id = Guid.NewGuid();
         var t = new Trainer
         {
             Id = id,
-            FirstName = dto.FirstName.Trim(),
-            LastName = dto.LastName.Trim(),
+            FirstName = dto.FirstName,
+            LastName = dto.LastName,
             Bio = dto.Bio?.Trim() ?? "",
             Specializations = dto.Specializations ?? Array.Empty<string>(),
             Certifications = dto.Certifications ?? Array.Empty<string>(),
             ExperienceYears = dto.ExperienceYears,
             InstagramUrl = dto.InstagramUrl?.Trim(),
             YoutubeUrl = dto.YoutubeUrl?.Trim(),
-     
             Rating = 0m,
             TotalRatings = 0,
             IsVerified = false,
@@ -75,6 +86,7 @@ public class TrainerService:ITrainerService
         await _ctx.SaveChangesAsync();
         return new("Trainer created", id, HttpStatusCode.Created);
     }
+
 
     public async Task<BaseResponse<List<TrainerListItemDto>>> GetByNameAsync(string name)
     {
@@ -106,8 +118,20 @@ public class TrainerService:ITrainerService
         var canModerate = await CanAsync("Trainers.Moderate");
         if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
 
-        t.FirstName = dto.FirstName.Trim();
-        t.LastName = dto.LastName.Trim();
+        if (string.IsNullOrWhiteSpace(dto.FirstName) || string.IsNullOrWhiteSpace(dto.LastName))
+            return new("FirstName and LastName are required", HttpStatusCode.BadRequest);
+
+        dto.FirstName = dto.FirstName.Trim();
+        dto.LastName = dto.LastName.Trim();
+        if (dto.FirstName.Length < 2 || dto.FirstName.Length > 60 ||
+            dto.LastName.Length < 2 || dto.LastName.Length > 60)
+            return new("Name parts must be 2-60 characters", HttpStatusCode.BadRequest);
+
+        if (dto.ExperienceYears < 0 || dto.ExperienceYears > 80)
+            return new("ExperienceYears must be between 0 and 80", HttpStatusCode.BadRequest);
+
+        t.FirstName = dto.FirstName;
+        t.LastName = dto.LastName;
         t.Bio = dto.Bio?.Trim() ?? "";
         t.Specializations = dto.Specializations ?? Array.Empty<string>();
         t.Certifications = dto.Certifications ?? Array.Empty<string>();
@@ -116,7 +140,7 @@ public class TrainerService:ITrainerService
         t.YoutubeUrl = dto.YoutubeUrl?.Trim();
         t.IsActive = dto.IsActive;
 
-        if (canModerate) t.IsVerified = dto.IsVerified; // yalnız policy-si keçənlər
+        if (canModerate) t.IsVerified = dto.IsVerified;
         t.UpdatedAt = DateTime.UtcNow;
 
         _ctx.Trainers.Update(t);
@@ -146,19 +170,21 @@ public class TrainerService:ITrainerService
         if (dto?.File == null || dto.File.Length == 0)
             return new("Image is required", HttpStatusCode.BadRequest);
 
+        // sadə MIME yoxlaması (opsional)
+        if (!string.IsNullOrWhiteSpace(dto.File.ContentType) &&
+            !dto.File.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            return new("Only image files are allowed", HttpStatusCode.BadRequest);
+
         var trainer = await _ctx.Trainers
             .Include(t => t.Images)
             .FirstOrDefaultAsync(t => t.Id == trainerId && !t.IsDeleted);
-
         if (trainer is null) return new("Trainer not found", HttpStatusCode.NotFound);
 
-        // icazə: sahibi və ya policy
         var owner = await IsOwnerAsync(trainerId);
         var canModerate = await CanAsync("Trainers.Moderate");
         if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
 
-        // faylı yüklə (storage-a), URL geri qayıdır
-        var url = await _files.UploadAsync(dto.File); // məsələn: /uploads/trainers/xyz.jpg
+        var url = await _files.UploadAsync(dto.File);
 
         var img = new Image
         {
@@ -175,7 +201,6 @@ public class TrainerService:ITrainerService
         _ctx.Trainers.Update(trainer);
         await _ctx.SaveChangesAsync();
 
-        // Data sahəsində URL-i qaytarırıq
         return new("Image added to trainer", url, HttpStatusCode.Created);
     }
 
@@ -195,10 +220,10 @@ public class TrainerService:ITrainerService
         image.IsDeleted = true;
         image.UpdatedAt = DateTime.UtcNow;
 
-        _ctx.Images.Update(image); // DbSet<Image> olmalıdır
+        _ctx.Images.Update(image);
         await _ctx.SaveChangesAsync();
 
-        return new BaseResponse<string>("Image deleted from supplement", HttpStatusCode.OK);
+        return new BaseResponse<string>("Image deleted from trainer", HttpStatusCode.OK);
     }
     public async Task<BaseResponse<string>> VerifyAsync(Guid id)
     {
@@ -327,17 +352,37 @@ public class TrainerService:ITrainerService
 
         var owner = await IsOwnerAsync(dto.TrainerId);
         var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
+        if (!(owner || canModerate)) return new("Forbidden", Guid.Empty, HttpStatusCode.Forbidden);
+
+        // ====== INPUT CHECKS ======
+        if (string.IsNullOrWhiteSpace(dto.Title))
+            return new("Title is required", Guid.Empty, HttpStatusCode.BadRequest);
+        var title = dto.Title.Trim();
+        if (title.Length < 2 || title.Length > 150)
+            return new("Title length must be 2..150", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(VideoType), dto.Type))
+            return new("Invalid video type", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(WorkoutCategory), dto.Category))
+            return new("Invalid video category", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (dto.Duration < 0)
+            return new("Duration cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // (opsional) URL-lər üçün trim
+        var videoUrl = dto.VideoUrl?.Trim() ?? "";
+        var thumbUrl = dto.ThumbnailUrl?.Trim();
 
         var id = Guid.NewGuid();
         var v = new TrainerVideo
         {
             Id = id,
             TrainerId = dto.TrainerId,
-            Title = dto.Title.Trim(),
+            Title = title,
             Description = dto.Description?.Trim() ?? "",
-            VideoUrl = dto.VideoUrl?.Trim() ?? "",
-            ThumbnailUrl = dto.ThumbnailUrl?.Trim(),
+            VideoUrl = videoUrl,
+            ThumbnailUrl = thumbUrl,
             Duration = dto.Duration,
             Type = dto.Type,
             Category = dto.Category,
@@ -383,10 +428,25 @@ public class TrainerService:ITrainerService
         var canModerate = await CanAsync("Trainers.Moderate");
         if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
 
-        v.Title = dto.Title.Trim();
+        if (string.IsNullOrWhiteSpace(dto.Title))
+            return new("Title is required", HttpStatusCode.BadRequest);
+        var title = dto.Title.Trim();
+        if (title.Length < 2 || title.Length > 150)
+            return new("Title length must be 2..150", HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(VideoType), dto.Type))
+            return new("Invalid video type", HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(WorkoutCategory), dto.Category))
+            return new("Invalid video category", HttpStatusCode.BadRequest);
+
+        if (dto.Duration < 0)
+            return new("Duration cannot be negative", HttpStatusCode.BadRequest);
+
+        v.Title = title;
         v.Description = dto.Description?.Trim() ?? "";
-        v.VideoUrl = dto.VideoUrl?.Trim() ?? v.VideoUrl;
-        v.ThumbnailUrl = dto.ThumbnailUrl?.Trim() ?? v.ThumbnailUrl;
+        v.VideoUrl = string.IsNullOrWhiteSpace(dto.VideoUrl) ? v.VideoUrl : dto.VideoUrl!.Trim();
+        v.ThumbnailUrl = string.IsNullOrWhiteSpace(dto.ThumbnailUrl) ? v.ThumbnailUrl : dto.ThumbnailUrl!.Trim();
         v.Duration = dto.Duration;
         v.Type = dto.Type;
         v.Category = dto.Category;
@@ -610,7 +670,37 @@ public class TrainerService:ITrainerService
 
         var owner = await IsOwnerAsync(dto.TrainerId);
         var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
+        if (!(owner || canModerate)) return new("Forbidden", Guid.Empty, HttpStatusCode.Forbidden);
+
+        // ====== INPUT CHECKS ======
+        if (string.IsNullOrWhiteSpace(dto.Title))
+            return new("Title is required", Guid.Empty, HttpStatusCode.BadRequest);
+        var title = dto.Title.Trim();
+        if (title.Length < 2 || title.Length > 150)
+            return new("Title length must be 2..150", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(WorkoutCategory), dto.Category))
+            return new("Invalid workout category", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(DifficultyLevel), dto.Difficulty))
+            return new("Invalid difficulty", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(MuscleGroup), dto.TargetMuscles))
+            return new("Invalid muscle group", Guid.Empty, HttpStatusCode.BadRequest);
+        if (dto.EstimatedDuration < 1)
+            return new("EstimatedDuration must be >= 1 minute", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (dto.Lines == null || dto.Lines.Count == 0)
+            return new("At least one exercise line is required", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // Lines: sahə yoxlamaları
+        foreach (var l in dto.Lines)
+        {
+            if (l.Sets < 0) return new("Line.Sets cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+            if (l.Reps < 0) return new("Line.Reps cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+            if (l.Duration < 0) return new("Line.Duration cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+            if (l.RestTimeSeconds < 0) return new("Line.RestTimeSeconds cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+        }
 
         var exIds = dto.Lines.Select(l => l.ExerciseId).ToHashSet();
         var found = await _ctx.Exercises
@@ -624,7 +714,7 @@ public class TrainerService:ITrainerService
         {
             Id = id,
             TrainerId = dto.TrainerId,
-            Title = dto.Title.Trim(),
+            Title = title,
             Description = dto.Description?.Trim() ?? "",
             Category = dto.Category,
             Difficulty = dto.Difficulty,
@@ -744,12 +834,42 @@ public class TrainerService:ITrainerService
         var canModerate = await CanAsync("Trainers.Moderate");
         if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
 
+        if (string.IsNullOrWhiteSpace(dto.Title))
+            return new("Title is required", HttpStatusCode.BadRequest);
+        if (dto.Title.Trim().Length is < 2 or > 160)
+            return new("Title length must be 2-160", HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(WorkoutCategory), dto.Category))
+            return new("Invalid workout category", HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(DifficultyLevel), dto.Difficulty))
+            return new("Invalid difficulty", HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(MuscleGroup), dto.TargetMuscles))
+            return new BaseResponse<string>("Invalid muscle group", HttpStatusCode.BadRequest);
+
+        if (dto.EstimatedDuration < 0)
+            return new("EstimatedDuration cannot be negative", HttpStatusCode.BadRequest);
+
+        if (dto.Lines == null || dto.Lines.Count == 0)
+            return new("At least one exercise line is required", HttpStatusCode.BadRequest);
+
+        foreach (var l in dto.Lines)
+        {
+            if (l.Sets < 0 || l.Reps < 0 || l.Duration < 0 || l.RestTimeSeconds < 0)
+                return new("Sets/Reps/Duration/Rest must be >= 0", HttpStatusCode.BadRequest);
+
+            if ((l.Sets == 0 && l.Reps == 0 && l.Duration == 0))
+                return new("Each line must have either sets/reps or duration", HttpStatusCode.BadRequest);
+        }
+
         var exIds = dto.Lines.Select(l => l.ExerciseId).ToHashSet();
         var found = await _ctx.Exercises
             .Where(e => !e.IsDeleted && exIds.Contains(e.Id))
             .Select(e => e.Id)
             .ToListAsync();
-        if (exIds.Except(found).Any()) return new("Some exercises not found", HttpStatusCode.BadRequest);
+        if (exIds.Except(found).Any())
+            return new("Some exercises not found", HttpStatusCode.BadRequest);
 
         w.Title = dto.Title.Trim();
         w.Description = dto.Description?.Trim() ?? "";

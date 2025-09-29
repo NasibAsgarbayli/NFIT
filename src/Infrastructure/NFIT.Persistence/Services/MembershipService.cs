@@ -32,6 +32,7 @@ public class MembershipService:IMembershipService
             return new BaseResponse<MembershipGetDto>("Unauthorized", null, HttpStatusCode.Unauthorized);
 
         var m = await _context.Memberships
+            .AsNoTracking()
             .Include(x => x.SubscriptionPlan)
             .Where(x => x.UserId == CurrentUserId && !x.IsDeleted)
             .OrderByDescending(x => x.IsActive)
@@ -41,11 +42,7 @@ public class MembershipService:IMembershipService
         if (m is null)
             return new BaseResponse<MembershipGetDto>("No membership found", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<MembershipGetDto>(
-            "Membership retrieved",
-            Map(m),
-            HttpStatusCode.OK
-        );
+        return new BaseResponse<MembershipGetDto>("Membership retrieved", Map(m), HttpStatusCode.OK);
     }
     public async Task<BaseResponse<List<MembershipListItemDto>>> GetMyMembershipHistoryAsync()
     {
@@ -54,6 +51,7 @@ public class MembershipService:IMembershipService
             return new BaseResponse<List<MembershipListItemDto>>("Unauthorized", null, HttpStatusCode.Unauthorized);
 
         var list = await _context.Memberships
+            .AsNoTracking()
             .Include(x => x.SubscriptionPlan)
             .Where(x => x.UserId == userId && !x.IsDeleted)
             .OrderByDescending(x => x.StartDate)
@@ -84,9 +82,7 @@ public class MembershipService:IMembershipService
         var now = DateTime.UtcNow;
 
         var m = await _context.Memberships
-            .Where(x => x.UserId == CurrentUserId && x.IsActive && !x.IsDeleted && x.EndDate > now)
-            .OrderByDescending(x => x.StartDate)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(x => x.UserId == CurrentUserId && x.IsActive && !x.IsDeleted && x.EndDate > now);
 
         if (m is null)
             return new BaseResponse<string>("Active membership not found", HttpStatusCode.NotFound);
@@ -100,6 +96,7 @@ public class MembershipService:IMembershipService
 
         return new BaseResponse<string>("Membership cancelled", HttpStatusCode.OK);
     }
+
 
     // ============ MY: DELETE (soft) ============
     public async Task<BaseResponse<string>> DeleteAsync(Guid id)
@@ -130,8 +127,16 @@ public class MembershipService:IMembershipService
     // ============ ADMIN: istənilən user-in membership-i ============
     public async Task<BaseResponse<MembershipGetDto>> GetUsersMembershipAsync(string userId)
     {
-        // Admin policy-ni controller səviyyəsində tətbiq edəcəksən
+        // Controller səviyyəsində Admin policy var, amma yenə də guard edək
+        if (string.IsNullOrWhiteSpace(userId))
+            return new BaseResponse<MembershipGetDto>("User id is required", null, HttpStatusCode.BadRequest);
+
+        //(opsional)user mövcudmu?
+        var userExists = await _context.Users.AnyAsync(u => u.Id == userId && u.IsActive);
+        if (!userExists) return new BaseResponse<MembershipGetDto>("User not found", null, HttpStatusCode.NotFound);
+
         var m = await _context.Memberships
+            .AsNoTracking()
             .Include(x => x.SubscriptionPlan)
             .Where(x => x.UserId == userId && !x.IsDeleted)
             .OrderByDescending(x => x.IsActive)
@@ -141,11 +146,7 @@ public class MembershipService:IMembershipService
         if (m is null)
             return new BaseResponse<MembershipGetDto>("No membership found for user", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<MembershipGetDto>(
-            "User membership retrieved",
-            Map(m),
-            HttpStatusCode.OK
-        );
+        return new BaseResponse<MembershipGetDto>("User membership retrieved", Map(m), HttpStatusCode.OK);
     }
     public async Task<BaseResponse<string>> DeactivateUserMembershipAsync(string userId)
     {

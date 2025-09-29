@@ -28,8 +28,14 @@ public class GymCheckInService:IGymCheckInService
 
     public async Task<BaseResponse<Guid>> CheckInAsync(CheckInRequestDto dto)
     {
+        if (dto == null)
+            return new BaseResponse<Guid>("Request body is required", Guid.Empty, HttpStatusCode.BadRequest);
+
         if (string.IsNullOrWhiteSpace(UserId))
             return new BaseResponse<Guid>("Unauthorized", Guid.Empty, HttpStatusCode.Unauthorized);
+
+        if (string.IsNullOrWhiteSpace(dto.QrData))
+            return new BaseResponse<Guid>("QR data is required", Guid.Empty, HttpStatusCode.BadRequest);
 
         // 1) QR tap
         var qr = await _context.GymQRCodes
@@ -37,7 +43,7 @@ public class GymCheckInService:IGymCheckInService
         if (qr is null)
             return new BaseResponse<Guid>("Invalid or inactive QR", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // 2) Aktiv check-in yoxla (istifadəçi hazırda içəridədirsə, ikinciyə icazə vermə)
+        // 2) Aktiv check-in yoxla
         var hasActive = await _context.GymCheckIns.AnyAsync(c =>
             c.UserId == UserId && c.Status == CheckInStatus.Active && !c.IsDeleted);
         if (hasActive)
@@ -45,12 +51,9 @@ public class GymCheckInService:IGymCheckInService
 
         // 3) İstifadəçinin aktiv üzvlüyü var?
         var now = DateTime.UtcNow;
-
-        // Həmin gym-in available planlarını götür
         var gym = await _context.Gyms
             .Include(g => g.AvailableSubscriptions)
             .FirstOrDefaultAsync(g => g.Id == qr.GymId && !g.IsDeleted && g.IsActive);
-
         if (gym is null)
             return new BaseResponse<Guid>("Gym not found or inactive", Guid.Empty, HttpStatusCode.NotFound);
 
@@ -59,7 +62,6 @@ public class GymCheckInService:IGymCheckInService
             .Select(p => p.Id)
             .ToHashSet();
 
-        // İstifadəçinin aktiv membership-lərindən hər hansı birinin planı bu gym-də keçərlidirmi?
         var hasValidMembership = await _context.Memberships
             .AnyAsync(m =>
                 m.UserId == UserId &&
@@ -81,7 +83,7 @@ public class GymCheckInService:IGymCheckInService
             GymId = qr.GymId,
             UserId = UserId!,
             CheckInTime = now,
-            Status = CheckInStatus.Active,
+            Status = CheckInStatus.Active,   // enum dəyəri backend tərəfindən set olunur
             Notes = dto.Notes
         };
 
@@ -93,8 +95,14 @@ public class GymCheckInService:IGymCheckInService
 
     public async Task<BaseResponse<string>> CheckOutAsync(CheckOutRequestDto dto)
     {
+        if (dto == null)
+            return new BaseResponse<string>("Request body is required", HttpStatusCode.BadRequest);
+
         if (string.IsNullOrWhiteSpace(UserId))
             return new BaseResponse<string>("Unauthorized", HttpStatusCode.Unauthorized);
+
+        if (dto.CheckInId == Guid.Empty)
+            return new BaseResponse<string>("Check-in id is required", HttpStatusCode.BadRequest);
 
         var ci = await _context.GymCheckIns
             .FirstOrDefaultAsync(c => c.Id == dto.CheckInId && !c.IsDeleted);
@@ -109,7 +117,7 @@ public class GymCheckInService:IGymCheckInService
             return new BaseResponse<string>("Already closed", HttpStatusCode.BadRequest);
 
         ci.CheckOutTime = DateTime.UtcNow;
-        ci.Status = CheckInStatus.CheckedOut;   // ✅ yeni enum adı
+        ci.Status = CheckInStatus.CheckedOut;   // enum dəyəri burada da backend tərəfindən təyin olunur
         ci.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();

@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using NFIT.Application.Abstracts.Repositories;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.OrderDtos;
 using NFIT.Application.Shared;
@@ -15,18 +16,27 @@ namespace NFIT.Persistence.Services;
 
 public class OrderService:IOrderService
 {
-    private readonly NFITDbContext _context;
+    private readonly IOrderRepository _orders;
+    private readonly ISupplementRepository _supplements;
+    private readonly ISubscriptionPlanRepository _plans;
+    private readonly IGymRepository _gyms; // sales/filter üçün lazım ola bilər
     private readonly IHttpContextAccessor _http;
     private readonly IEmailService _email;
     private readonly UserManager<AppUser> _userManager;
 
     public OrderService(
-        NFITDbContext context,
+        IOrderRepository orders,
+        ISupplementRepository supplements,
+        ISubscriptionPlanRepository plans,
+        IGymRepository gyms,
         IHttpContextAccessor http,
         IEmailService email,
         UserManager<AppUser> userManager)
     {
-        _context = context;
+        _orders = orders;
+        _supplements = supplements;
+        _plans = plans;
+        _gyms = gyms;
         _http = http;
         _email = email;
         _userManager = userManager;
@@ -43,37 +53,36 @@ public class OrderService:IOrderService
     public async Task<BaseResponse<Guid>> CreateSupplementOrderAsync(OrderCreateSupplementDto dto)
     {
         if (string.IsNullOrWhiteSpace(UserId))
-            return new BaseResponse<Guid>("Unauthorized", Guid.Empty, HttpStatusCode.Unauthorized);
+            return new("Unauthorized", Guid.Empty, HttpStatusCode.Unauthorized);
 
         if (dto?.Items is null || dto.Items.Count == 0)
-            return new BaseResponse<Guid>("Cart is empty", Guid.Empty, HttpStatusCode.BadRequest);
+            return new("Cart is empty", Guid.Empty, HttpStatusCode.BadRequest);
 
         if (!Enum.IsDefined(typeof(PaymentMethod), dto.PaymentMethod))
-            return new BaseResponse<Guid>("Invalid payment method", Guid.Empty, HttpStatusCode.BadRequest);
+            return new("Invalid payment method", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // Eyni məhsulu birləşdir
         var merged = dto.Items
             .GroupBy(i => i.SupplementId)
             .Select(g => new { SupplementId = g.Key, Quantity = g.Sum(x => x.Quantity) })
             .ToList();
 
         if (merged.Any(x => x.Quantity <= 0))
-            return new BaseResponse<Guid>("Quantity must be greater than 0", Guid.Empty, HttpStatusCode.BadRequest);
+            return new("Quantity must be greater than 0", Guid.Empty, HttpStatusCode.BadRequest);
 
         var ids = merged.Select(i => i.SupplementId).ToHashSet();
-        var supplements = await _context.Supplements
-            .Where(s => ids.Contains(s.Id) && !s.IsDeleted && s.IsActive)
+
+        var supplements = await _supplements
+            .GetByFiltered(s => ids.Contains(s.Id) && !s.IsDeleted && s.IsActive, IsTracking: false)
             .ToListAsync();
 
         if (supplements.Count != ids.Count)
-            return new BaseResponse<Guid>("Some supplements not found or inactive", Guid.Empty, HttpStatusCode.BadRequest);
+            return new("Some supplements not found or inactive", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // Erkən stok yoxlaması (stok yalnız Confirm zamanı azalır)
         foreach (var item in merged)
         {
             var sup = supplements.First(s => s.Id == item.SupplementId);
             if (sup.StockQuantity < item.Quantity)
-                return new BaseResponse<Guid>($"Insufficient stock for {sup.Name}", Guid.Empty, HttpStatusCode.Conflict);
+                return new($"Insufficient stock for {sup.Name}", Guid.Empty, HttpStatusCode.Conflict);
         }
 
         var order = new Order
@@ -89,7 +98,6 @@ public class OrderService:IOrderService
         };
 
         decimal total = 0m;
-
         foreach (var item in merged)
         {
             var sup = supplements.First(s => s.Id == item.SupplementId);
@@ -111,32 +119,34 @@ public class OrderService:IOrderService
 
         order.TotalPrice = total;
 
-        await _context.Orders.AddAsync(order);
-        await _context.SaveChangesAsync();
+        await _orders.AddAsync(order);
+        await _orders.SaveChangeAsync();
 
-        // placed e-poçtları
-        var placedOrder = await _context.Orders
-            .Include(o => o.SubscriptionPlan)
-            .Include(o => o.OrderSupplements).ThenInclude(os => os.Supplement)
-            .FirstAsync(o => o.Id == order.Id);
+        var placedOrder = await _orders
+            .GetByFiltered(o => o.Id == order.Id,
+                include: new[] { (System.Linq.Expressions.Expression<Func<Order, object>>)(o => o.SubscriptionPlan),
+                                 o => o.OrderSupplements!})
+            .FirstAsync();
 
         await SendPlacedEmailsAsync(placedOrder);
-        return new BaseResponse<Guid>("Order created (pending)", order.Id, HttpStatusCode.Created);
+        return new("Order created (pending)", order.Id, HttpStatusCode.Created);
     }
 
     // ----------------- CREATE: SUBSCRIPTION -----------------
     public async Task<BaseResponse<Guid>> CreateSubscriptionOrderAsync(OrderCreateSubscriptionDto dto)
     {
         if (string.IsNullOrWhiteSpace(UserId))
-            return new BaseResponse<Guid>("Unauthorized", Guid.Empty, HttpStatusCode.Unauthorized);
+            return new("Unauthorized", Guid.Empty, HttpStatusCode.Unauthorized);
 
         if (!Enum.IsDefined(typeof(PaymentMethod), dto.PaymentMethod))
-            return new BaseResponse<Guid>("Invalid payment method", Guid.Empty, HttpStatusCode.BadRequest);
+            return new("Invalid payment method", Guid.Empty, HttpStatusCode.BadRequest);
 
-        var plan = await _context.SubscriptionPlans
-            .FirstOrDefaultAsync(p => p.Id == dto.SubscriptionPlanId && !p.IsDeleted);
+        var plan = await _plans
+            .GetByFiltered(p => p.Id == dto.SubscriptionPlanId && !p.IsDeleted, IsTracking: false)
+            .FirstOrDefaultAsync();
+
         if (plan is null)
-            return new BaseResponse<Guid>("Subscription plan not found", Guid.Empty, HttpStatusCode.NotFound);
+            return new("Subscription plan not found", Guid.Empty, HttpStatusCode.NotFound);
 
         var order = new Order
         {
@@ -150,168 +160,165 @@ public class OrderService:IOrderService
             TotalPrice = plan.Price
         };
 
-        await _context.Orders.AddAsync(order);
-        await _context.SaveChangesAsync();
+        await _orders.AddAsync(order);
+        await _orders.SaveChangeAsync();
 
-        var placedOrder = await _context.Orders
-            .Include(o => o.SubscriptionPlan)
-            .Include(o => o.OrderSupplements).ThenInclude(os => os.Supplement)
-            .FirstAsync(o => o.Id == order.Id);
+        var placedOrder = await _orders
+            .GetByFiltered(o => o.Id == order.Id,
+                include: new[] { (System.Linq.Expressions.Expression<Func<Order, object>>)(o => o.SubscriptionPlan),
+                                 o => o.OrderSupplements!})
+            .FirstAsync();
 
         await SendPlacedEmailsAsync(placedOrder);
-        return new BaseResponse<Guid>("Subscription order created (pending)", order.Id, HttpStatusCode.Created);
+        return new("Subscription order created (pending)", order.Id, HttpStatusCode.Created);
     }
 
     // ----------------- CONFIRM (payment OK) -----------------
     public async Task<BaseResponse<string>> ConfirmOrderAsync(Guid orderId)
     {
         if (string.IsNullOrWhiteSpace(UserId))
-            return new BaseResponse<string>("Unauthorized", HttpStatusCode.Unauthorized);
+            return new("Unauthorized", HttpStatusCode.Unauthorized);
 
-        await using var tx = await _context.Database.BeginTransactionAsync();
-        try
+        var order = await _orders
+            .GetByFiltered(o => o.Id == orderId && !o.IsDeleted,
+                           include: new[] { (System.Linq.Expressions.Expression<Func<Order, object>>)(o => o.SubscriptionPlan),
+                                            o => o.OrderSupplements!.Select(os => os.Supplement!) })
+            .FirstOrDefaultAsync();
+
+        if (order is null)
+            return new("Order not found", HttpStatusCode.NotFound);
+
+        if (order.UserId != UserId)
+            return new("Forbidden", HttpStatusCode.Forbidden);
+
+        if (order.Status == SupplementOrderStatus.Delivered)
+            return new("Order already completed", HttpStatusCode.Conflict);
+
+        // Supplement-li sifarişlər üçün stok azalt
+        if (order.OrderSupplements?.Any() == true)
         {
-            var order = await _context.Orders
-                .Include(o => o.SubscriptionPlan)
-                .Include(o => o.OrderSupplements).ThenInclude(os => os.Supplement)
-                .FirstOrDefaultAsync(o => o.Id == orderId && !o.IsDeleted);
-
-            if (order is null)
-                return new BaseResponse<string>("Order not found", HttpStatusCode.NotFound);
-
-            if (order.UserId != UserId)
-                return new BaseResponse<string>("Forbidden", HttpStatusCode.Forbidden);
-
-            if (order.Status == SupplementOrderStatus.Delivered)
-                return new BaseResponse<string>("Order already completed", HttpStatusCode.Conflict);
-
-            // Supplement-li sifarişlər üçün stok azalt
-            if (order.OrderSupplements?.Any() == true)
+            // bütün dəyişiklikləri yadda saxlamamışdan əvvəl RAM-da edirik
+            var now = DateTime.UtcNow;
+            foreach (var line in order.OrderSupplements)
             {
-                foreach (var line in order.OrderSupplements)
-                {
-                    var sup = await _context.Supplements
-                        .FirstOrDefaultAsync(s => s.Id == line.SupplementId && !s.IsDeleted && s.IsActive);
+                var sup = await _supplements
+                    .GetByFiltered(s => s.Id == line.SupplementId && !s.IsDeleted && s.IsActive)
+                    .FirstOrDefaultAsync();
 
-                    if (sup is null)
-                        return new BaseResponse<string>("Supplement not found during confirmation", HttpStatusCode.Conflict);
+                if (sup is null)
+                    return new("Supplement not found during confirmation", HttpStatusCode.Conflict);
 
-                    if (sup.StockQuantity < line.Quantity)
-                        return new BaseResponse<string>($"Insufficient stock for {sup.Name}", HttpStatusCode.Conflict);
+                if (sup.StockQuantity < line.Quantity)
+                    return new($"Insufficient stock for {sup.Name}", HttpStatusCode.Conflict);
 
-                    sup.StockQuantity -= line.Quantity;
-                    sup.UpdatedAt = DateTime.UtcNow;
-                    _context.Supplements.Update(sup);
-                }
-                await _context.SaveChangesAsync();
+                sup.StockQuantity -= line.Quantity;
+                sup.UpdatedAt = now;
+                _supplements.Update(sup);
             }
 
-            // Statusu Delivered et
+            // statusu dəyiş
             order.Status = SupplementOrderStatus.Delivered;
             order.UpdatedAt = DateTime.UtcNow;
-            _context.Orders.Update(order);
-            await _context.SaveChangesAsync();
+            _orders.Update(order);
 
-            await tx.CommitAsync();
-
-            // confirmed e-poçtları
-            await SendConfirmedEmailsAsync(order);
-
-            // QEYD: BURADA membership YARADILMIR.
-            // User sonradan "memberships/from-order" endpointinə gedib OrderId ilə membership yaradacaq.
-
-            return new BaseResponse<string>("Order confirmed (Delivered)", HttpStatusCode.OK);
+            // hamısını BİRDƏFƏ yaz
+            await _orders.SaveChangeAsync();
         }
-        catch
+        else
         {
-            await tx.RollbackAsync();
-            throw;
+            order.Status = SupplementOrderStatus.Delivered;
+            order.UpdatedAt = DateTime.UtcNow;
+            _orders.Update(order);
+            await _orders.SaveChangeAsync();
         }
+
+        await SendConfirmedEmailsAsync(order);
+        // Qeyd: membership sonradan "memberships/from-order" ilə yaradılır.
+        return new("Order confirmed (Delivered)", HttpStatusCode.OK);
     }
 
     // ----------------- GET: My Orders -----------------
     public async Task<BaseResponse<List<OrderGetDto>>> GetMyOrdersAsync()
     {
         if (string.IsNullOrWhiteSpace(UserId))
-            return new BaseResponse<List<OrderGetDto>>("Unauthorized", null, HttpStatusCode.Unauthorized);
+            return new("Unauthorized", null, HttpStatusCode.Unauthorized);
 
-        var orders = await _context.Orders
-            .Include(o => o.SubscriptionPlan)
-            .Include(o => o.OrderSupplements).ThenInclude(os => os.Supplement)
-            .Where(o => o.UserId == UserId && !o.IsDeleted)
+        var orders = await _orders
+            .GetByFiltered(o => o.UserId == UserId && !o.IsDeleted,
+                include: new[] { (System.Linq.Expressions.Expression<Func<Order, object>>)(o => o.SubscriptionPlan),
+                                 o => o.OrderSupplements! },
+                IsTracking: false)
             .OrderByDescending(o => o.OrderDate)
-            .AsNoTracking()
             .ToListAsync();
 
         if (orders.Count == 0)
-            return new BaseResponse<List<OrderGetDto>>("No orders found", null, HttpStatusCode.NotFound);
+            return new("No orders found", null, HttpStatusCode.NotFound);
 
         var list = orders.Select(MapOrderToDto).ToList();
-        return new BaseResponse<List<OrderGetDto>>("Orders retrieved", list, HttpStatusCode.OK);
+        return new("Orders retrieved", list, HttpStatusCode.OK);
     }
 
     // ----------------- GET: Sales (Admin/Moderator) -----------------
     public async Task<BaseResponse<List<OrderGetDto>>> GetSalesAsync(SalesFilterDto? filter = null)
     {
         if (filter?.From is not null && filter?.To is not null && filter.From > filter.To)
-            return new BaseResponse<List<OrderGetDto>>("Invalid date range", null, HttpStatusCode.BadRequest);
+            return new("Invalid date range", null, HttpStatusCode.BadRequest);
 
-        var q = _context.Orders
-            .Include(o => o.SubscriptionPlan)
-            .Include(o => o.OrderSupplements).ThenInclude(os => os.Supplement)
-            .Where(o => !o.IsDeleted &&
-                        (o.Status == SupplementOrderStatus.Delivered || o.Status == SupplementOrderStatus.Pending));
+        var q = _orders
+            .GetByFiltered(o => !o.IsDeleted &&
+                    (o.Status == SupplementOrderStatus.Delivered || o.Status == SupplementOrderStatus.Pending),
+                include: new[] { (System.Linq.Expressions.Expression<Func<Order, object>>)(o => o.SubscriptionPlan),
+                                 o => o.OrderSupplements ! },
+                IsTracking: false);
 
         if (filter?.From is not null) q = q.Where(o => o.OrderDate >= filter.From.Value);
         if (filter?.To is not null) q = q.Where(o => o.OrderDate <= filter.To.Value);
 
-        var orders = await q.OrderByDescending(o => o.OrderDate).AsNoTracking().ToListAsync();
+        var orders = await q.OrderByDescending(o => o.OrderDate).ToListAsync();
         if (orders.Count == 0)
-            return new BaseResponse<List<OrderGetDto>>("No sales in range", null, HttpStatusCode.NotFound);
+            return new("No sales in range", null, HttpStatusCode.NotFound);
 
         var list = orders.Select(MapOrderToDto).ToList();
-        return new BaseResponse<List<OrderGetDto>>("Sales retrieved", list, HttpStatusCode.OK);
+        return new("Sales retrieved", list, HttpStatusCode.OK);
     }
 
     // ----------------- UPDATE: Status -----------------
     public async Task<BaseResponse<string>> UpdateStatusAsync(Guid orderId, OrderStatusUpdateDto dto)
     {
         if (!Enum.IsDefined(typeof(SupplementOrderStatus), dto.Status))
-            return new BaseResponse<string>("Invalid status", HttpStatusCode.BadRequest);
+            return new("Invalid status", HttpStatusCode.BadRequest);
 
-        var o = await _context.Orders.FirstOrDefaultAsync(x => x.Id == orderId && !x.IsDeleted);
-        if (o is null)
-            return new BaseResponse<string>("Order not found", HttpStatusCode.NotFound);
+        var o = await _orders.GetByFiltered(x => x.Id == orderId && !x.IsDeleted).FirstOrDefaultAsync();
+        if (o is null) return new("Order not found", HttpStatusCode.NotFound);
 
         if (o.Status == SupplementOrderStatus.Delivered)
-            return new BaseResponse<string>("Order already completed", HttpStatusCode.Conflict);
+            return new("Order already completed", HttpStatusCode.Conflict);
 
         if (o.Status != SupplementOrderStatus.Pending && dto.Status == SupplementOrderStatus.Pending)
-            return new BaseResponse<string>("Cannot revert to pending", HttpStatusCode.BadRequest);
+            return new("Cannot revert to pending", HttpStatusCode.BadRequest);
 
         o.Status = dto.Status;
         o.UpdatedAt = DateTime.UtcNow;
 
-        _context.Orders.Update(o);
-        await _context.SaveChangesAsync();
+        _orders.Update(o);
+        await _orders.SaveChangeAsync();
 
-        return new BaseResponse<string>("Order status updated", HttpStatusCode.OK);
+        return new("Order status updated", HttpStatusCode.OK);
     }
 
     // ----------------- DELETE (soft) -----------------
     public async Task<BaseResponse<string>> DeleteAsync(Guid orderId)
     {
-        var o = await _context.Orders.FirstOrDefaultAsync(x => x.Id == orderId && !x.IsDeleted);
-        if (o is null)
-            return new BaseResponse<string>("Order not found", HttpStatusCode.NotFound);
+        var o = await _orders.GetByFiltered(x => x.Id == orderId && !x.IsDeleted).FirstOrDefaultAsync();
+        if (o is null) return new("Order not found", HttpStatusCode.NotFound);
 
         o.IsDeleted = true;
         o.UpdatedAt = DateTime.UtcNow;
 
-        _context.Orders.Update(o);
-        await _context.SaveChangesAsync();
+        _orders.Update(o);
+        await _orders.SaveChangeAsync();
 
-        return new BaseResponse<string>("Order deleted", HttpStatusCode.OK);
+        return new("Order deleted", HttpStatusCode.OK);
     }
 
     // ===================== EMAIL HELPERS =====================
@@ -367,28 +374,22 @@ public class OrderService:IOrderService
             await _email.SendEmailAsync(adminEmails, adminSubject, adminBody);
     }
 
-    private static string BuildOrderPlacedEmailHtml(Order order, bool isAdmin) => BuildEmailHtml(order,
-        titleUser: "Sifarişiniz qeydə alındı",
-        titleAdmin: "Yeni sifariş alındı",
-        isAdmin: isAdmin);
+    private static string BuildOrderPlacedEmailHtml(Order order, bool isAdmin) =>
+        BuildEmailHtml(order, "Sifarişiniz qeydə alındı", "Yeni sifariş alındı", isAdmin);
 
-    private static string BuildOrderConfirmedEmailHtml(Order order, bool isAdmin) => BuildEmailHtml(order,
-        titleUser: "Sifarişiniz təsdiqləndi",
-        titleAdmin: "Sifariş təsdiqləndi",
-        isAdmin: isAdmin);
+    private static string BuildOrderConfirmedEmailHtml(Order order, bool isAdmin) =>
+        BuildEmailHtml(order, "Sifarişiniz təsdiqləndi", "Sifariş təsdiqləndi", isAdmin);
 
-    // ⭐️ E-poçt HTML – Quantity ilə işləyir
+    // ⭐ Email HTML
     private static string BuildEmailHtml(Order order, string titleUser, string titleAdmin, bool isAdmin)
     {
         var title = isAdmin ? titleAdmin : titleUser;
-
         var sb = new StringBuilder();
         sb.Append("""
         <html>
         <body style="font-family:Arial,Helvetica,sans-serif; color:#111;">
           <div style="max-width:640px;margin:auto;">
         """);
-
         sb.Append($"<h2 style='margin-bottom:6px;'>{title} — #{order.Id}</h2>");
         sb.Append($"<p style='margin-top:0;color:#666'>Tarix: {order.OrderDate:yyyy-MM-dd HH:mm}</p>");
 
@@ -463,11 +464,10 @@ public class OrderService:IOrderService
         </body>
         </html>
         """);
-
         return sb.ToString();
     }
 
-    // ===================== MAP HELPERS =====================
+    // ===================== MAP =====================
     private static OrderGetDto MapOrderToDto(Order o) => new()
     {
         Id = o.Id,

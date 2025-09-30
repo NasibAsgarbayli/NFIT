@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using Microsoft.EntityFrameworkCore;
+using NFIT.Application.Abstracts.Repositories;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.SubscriptionPlanDtos;
 using NFIT.Application.Shared;
@@ -11,44 +12,45 @@ namespace NFIT.Persistence.Services;
 
 public class SubscriptionPlanService : ISubscriptionPlanService
 {
-    private readonly NFITDbContext _context;
-    public SubscriptionPlanService(NFITDbContext context) => _context = context;
+    private readonly ISubscriptionPlanRepository _plans;
+    public SubscriptionPlanService(ISubscriptionPlanRepository plans) => _plans = plans;
+
 
     // CREATE
     public async Task<BaseResponse<Guid>> CreateAsync(SubscriptionPlanCreateDto dto)
     {
         if (dto == null)
-            return new BaseResponse<Guid>("Body is required", Guid.Empty, HttpStatusCode.BadRequest);
+            return new("Body is required", Guid.Empty, HttpStatusCode.BadRequest);
 
         if (string.IsNullOrWhiteSpace(dto.Name))
-            return new BaseResponse<Guid>("Name is required", Guid.Empty, HttpStatusCode.BadRequest);
+            return new("Name is required", Guid.Empty, HttpStatusCode.BadRequest);
 
         var name = dto.Name.Trim();
         if (name.Length < 2 || name.Length > 120)
-            return new BaseResponse<Guid>("Name length must be between 2 and 120", Guid.Empty, HttpStatusCode.BadRequest);
+            return new("Name length must be between 2 and 120", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // ✅ Enum yoxlamaları
         if (!Enum.IsDefined(typeof(SubscriptionType), dto.Type))
-            return new BaseResponse<Guid>("Invalid plan type", Guid.Empty, HttpStatusCode.BadRequest);
+            return new("Invalid plan type", Guid.Empty, HttpStatusCode.BadRequest);
 
         if (!Enum.IsDefined(typeof(BillingCycle), dto.BillingCycle))
-            return new BaseResponse<Guid>("Invalid billing cycle", Guid.Empty, HttpStatusCode.BadRequest);
+            return new("Invalid billing cycle", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // ✅ Qiymət guard
         if (dto.Price < 0)
-            return new BaseResponse<Guid>("Price cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+            return new("Price cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // ✅ Unikallıq (Name + Type + BillingCycle)
-        var exists = await _context.SubscriptionPlans.AnyAsync(sp =>
-            !sp.IsDeleted &&
-            sp.Type == dto.Type &&
-            sp.BillingCycle == dto.BillingCycle &&
-            sp.Name != null &&
-            sp.Name.Trim().ToLower() == name.ToLower());
+        // unique (Name + Type + Cycle)
+        var exists = await _plans
+            .GetByFiltered(sp => !sp.IsDeleted &&
+                                 sp.Type == dto.Type &&
+                                 sp.BillingCycle == dto.BillingCycle &&
+                                 sp.Name != null &&
+                                 sp.Name.Trim().ToLower() == name.ToLower(),
+                           IsTracking: false)
+            .AnyAsync();
 
         if (exists)
-            return new BaseResponse<Guid>("A subscription plan with same name/type/cycle already exists",
-                                          Guid.Empty, HttpStatusCode.Conflict);
+            return new("A subscription plan with same name/type/cycle already exists",
+                       Guid.Empty, HttpStatusCode.Conflict);
 
         var entity = new SubscriptionPlan
         {
@@ -60,55 +62,55 @@ public class SubscriptionPlanService : ISubscriptionPlanService
             Price = dto.Price
         };
 
-        await _context.SubscriptionPlans.AddAsync(entity);
-        await _context.SaveChangesAsync();
+        await _plans.AddAsync(entity);
+        await _plans.SaveChangeAsync();
 
-        return new BaseResponse<Guid>("Subscription plan created", entity.Id, HttpStatusCode.Created);
+        return new("Subscription plan created", entity.Id, HttpStatusCode.Created);
     }
 
     // UPDATE
     public async Task<BaseResponse<string>> UpdateAsync(SubscriptionPlanUpdateDto dto)
     {
         if (dto == null)
-            return new BaseResponse<string>("Body is required", HttpStatusCode.BadRequest);
+            return new("Body is required", HttpStatusCode.BadRequest);
 
         if (string.IsNullOrWhiteSpace(dto.Name))
-            return new BaseResponse<string>("Name is required", HttpStatusCode.BadRequest);
+            return new("Name is required", HttpStatusCode.BadRequest);
 
-        var sp = await _context.SubscriptionPlans
-            .Include(x => x.Gyms)
-            .FirstOrDefaultAsync(x => x.Id == dto.Id && !x.IsDeleted);
+        var sp = await _plans
+            .GetByFiltered(x => x.Id == dto.Id && !x.IsDeleted,
+                           include: new[] { (System.Linq.Expressions.Expression<Func<SubscriptionPlan, object>>)(x => x.Gyms) })
+            .FirstOrDefaultAsync();
 
         if (sp is null)
-            return new BaseResponse<string>("Subscription plan not found", HttpStatusCode.NotFound);
+            return new("Subscription plan not found", HttpStatusCode.NotFound);
 
         var name = dto.Name.Trim();
         if (name.Length < 2 || name.Length > 120)
-            return new BaseResponse<string>("Name length must be between 2 and 120", HttpStatusCode.BadRequest);
+            return new("Name length must be between 2 and 120", HttpStatusCode.BadRequest);
 
-        // ✅ Enum yoxlamaları
         if (!Enum.IsDefined(typeof(SubscriptionType), dto.Type))
-            return new BaseResponse<string>("Invalid plan type", HttpStatusCode.BadRequest);
+            return new("Invalid plan type", HttpStatusCode.BadRequest);
 
         if (!Enum.IsDefined(typeof(BillingCycle), dto.BillingCycle))
-            return new BaseResponse<string>("Invalid billing cycle", HttpStatusCode.BadRequest);
+            return new("Invalid billing cycle", HttpStatusCode.BadRequest);
 
-        // ✅ Qiymət guard
         if (dto.Price < 0)
-            return new BaseResponse<string>("Price cannot be negative", HttpStatusCode.BadRequest);
+            return new("Price cannot be negative", HttpStatusCode.BadRequest);
 
-        // ✅ Unikallıq (özündən başqa)
-        var exists = await _context.SubscriptionPlans.AnyAsync(x =>
-            !x.IsDeleted &&
-            x.Id != dto.Id &&
-            x.Type == dto.Type &&
-            x.BillingCycle == dto.BillingCycle &&
-            x.Name != null &&
-            x.Name.Trim().ToLower() == name.ToLower());
+        var exists = await _plans
+            .GetByFiltered(x => !x.IsDeleted &&
+                                x.Id != dto.Id &&
+                                x.Type == dto.Type &&
+                                x.BillingCycle == dto.BillingCycle &&
+                                x.Name != null &&
+                                x.Name.Trim().ToLower() == name.ToLower(),
+                           IsTracking: false)
+            .AnyAsync();
 
         if (exists)
-            return new BaseResponse<string>("A subscription plan with same name/type/cycle already exists",
-                                            HttpStatusCode.Conflict);
+            return new("A subscription plan with same name/type/cycle already exists",
+                       HttpStatusCode.Conflict);
 
         sp.Name = name;
         sp.Description = dto.Description?.Trim();
@@ -117,33 +119,35 @@ public class SubscriptionPlanService : ISubscriptionPlanService
         sp.Price = dto.Price;
         sp.UpdatedAt = DateTime.UtcNow;
 
-        _context.SubscriptionPlans.Update(sp);
-        await _context.SaveChangesAsync();
+        _plans.Update(sp);
+        await _plans.SaveChangeAsync();
 
-        return new BaseResponse<string>("Subscription plan updated", HttpStatusCode.OK);
+        return new("Subscription plan updated", HttpStatusCode.OK);
     }
+
     // SOFT DELETE
     public async Task<BaseResponse<string>> DeleteAsync(Guid id)
     {
-        var sp = await _context.SubscriptionPlans.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
+        var sp = await _plans.GetByFiltered(x => x.Id == id && !x.IsDeleted).FirstOrDefaultAsync();
         if (sp is null)
-            return new BaseResponse<string>("Subscription plan not found", HttpStatusCode.NotFound);
+            return new("Subscription plan not found", HttpStatusCode.NotFound);
 
         sp.IsDeleted = true;
         sp.UpdatedAt = DateTime.UtcNow;
 
-        _context.SubscriptionPlans.Update(sp);
-        await _context.SaveChangesAsync();
+        _plans.Update(sp);
+        await _plans.SaveChangeAsync();
 
-        return new BaseResponse<string>("Subscription plan deleted (soft)", HttpStatusCode.OK);
+        return new("Subscription plan deleted (soft)", HttpStatusCode.OK);
     }
 
     // GET ALL
     public async Task<BaseResponse<List<SubscriptionPlanGetDto>>> GetAllAsync()
     {
-        var list = await _context.SubscriptionPlans
-            .Include(s => s.Gyms)
-            .Where(s => !s.IsDeleted)
+        var list = await _plans
+            .GetByFiltered(s => !s.IsDeleted,
+                           include: new[] { (System.Linq.Expressions.Expression<Func<SubscriptionPlan, object>>)(s => s.Gyms) },
+                           IsTracking: false)
             .OrderBy(s => s.Name)
             .Select(s => new SubscriptionPlanGetDto
             {
@@ -158,21 +162,22 @@ public class SubscriptionPlanService : ISubscriptionPlanService
             .ToListAsync();
 
         if (list.Count == 0)
-            return new BaseResponse<List<SubscriptionPlanGetDto>>("No subscription plans found",
-                                                                  null, HttpStatusCode.NotFound);
+            return new("No subscription plans found", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<List<SubscriptionPlanGetDto>>("Subscription plans retrieved", list, HttpStatusCode.OK);
+        return new("Subscription plans retrieved", list, HttpStatusCode.OK);
     }
 
     // GET BY ID
     public async Task<BaseResponse<SubscriptionPlanGetDto>> GetByIdAsync(Guid id)
     {
-        var s = await _context.SubscriptionPlans
-            .Include(x => x.Gyms)
-            .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
+        var s = await _plans
+            .GetByFiltered(x => x.Id == id && !x.IsDeleted,
+                           include: new[] { (System.Linq.Expressions.Expression<Func<SubscriptionPlan, object>>)(x => x.Gyms) },
+                           IsTracking: false)
+            .FirstOrDefaultAsync();
 
         if (s is null)
-            return new BaseResponse<SubscriptionPlanGetDto>("Subscription plan not found", null, HttpStatusCode.NotFound);
+            return new("Subscription plan not found", null, HttpStatusCode.NotFound);
 
         var dto = new SubscriptionPlanGetDto
         {
@@ -185,21 +190,23 @@ public class SubscriptionPlanService : ISubscriptionPlanService
             GymCount = s.Gyms?.Count(g => !g.IsDeleted) ?? 0
         };
 
-        return new BaseResponse<SubscriptionPlanGetDto>("Subscription plan retrieved", dto, HttpStatusCode.OK);
+        return new("Subscription plan retrieved", dto, HttpStatusCode.OK);
     }
 
     // GET BY NAME (exact match)
     public async Task<BaseResponse<SubscriptionPlanGetDto>> GetByNameAsync(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return new BaseResponse<SubscriptionPlanGetDto>("Name is required", null, HttpStatusCode.BadRequest);
+            return new("Name is required", null, HttpStatusCode.BadRequest);
 
-        var s = await _context.SubscriptionPlans
-            .Include(x => x.Gyms)
-            .FirstOrDefaultAsync(x => !x.IsDeleted && x.Name.ToLower() == name.Trim().ToLower());
+        var s = await _plans
+            .GetByFiltered(x => !x.IsDeleted && x.Name != null && x.Name.ToLower() == name.Trim().ToLower(),
+                           include: new[] { (System.Linq.Expressions.Expression<Func<SubscriptionPlan, object>>)(x => x.Gyms) },
+                           IsTracking: false)
+            .FirstOrDefaultAsync();
 
         if (s is null)
-            return new BaseResponse<SubscriptionPlanGetDto>("Subscription plan not found", null, HttpStatusCode.NotFound);
+            return new("Subscription plan not found", null, HttpStatusCode.NotFound);
 
         var dto = new SubscriptionPlanGetDto
         {
@@ -212,13 +219,16 @@ public class SubscriptionPlanService : ISubscriptionPlanService
             GymCount = s.Gyms?.Count(g => !g.IsDeleted) ?? 0
         };
 
-        return new BaseResponse<SubscriptionPlanGetDto>("Subscription plan retrieved", dto, HttpStatusCode.OK);
+        return new("Subscription plan retrieved", dto, HttpStatusCode.OK);
     }
+
     // 1) Ən ucuz plan
     public async Task<BaseResponse<SubscriptionPlanGetDto>> GetCheapestPlanAsync()
     {
-        var s = await _context.SubscriptionPlans
-            .Where(x => !x.IsDeleted)
+        var s = await _plans
+            .GetByFiltered(x => !x.IsDeleted,
+                           include: new[] { (System.Linq.Expressions.Expression<Func<SubscriptionPlan, object>>)(x => x.Gyms) },
+                           IsTracking: false)
             .OrderBy(x => x.Price)
             .Select(x => new SubscriptionPlanGetDto
             {
@@ -233,16 +243,18 @@ public class SubscriptionPlanService : ISubscriptionPlanService
             .FirstOrDefaultAsync();
 
         if (s is null)
-            return new BaseResponse<SubscriptionPlanGetDto>("No subscription plans found", null, HttpStatusCode.NotFound);
+            return new("No subscription plans found", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<SubscriptionPlanGetDto>("Cheapest plan retrieved", s, HttpStatusCode.OK);
+        return new("Cheapest plan retrieved", s, HttpStatusCode.OK);
     }
 
     // 2) Ən bahalı plan
     public async Task<BaseResponse<SubscriptionPlanGetDto>> GetMostExpensivePlanAsync()
     {
-        var s = await _context.SubscriptionPlans
-            .Where(x => !x.IsDeleted)
+        var s = await _plans
+            .GetByFiltered(x => !x.IsDeleted,
+                           include: new[] { (System.Linq.Expressions.Expression<Func<SubscriptionPlan, object>>)(x => x.Gyms) },
+                           IsTracking: false)
             .OrderByDescending(x => x.Price)
             .Select(x => new SubscriptionPlanGetDto
             {
@@ -257,16 +269,18 @@ public class SubscriptionPlanService : ISubscriptionPlanService
             .FirstOrDefaultAsync();
 
         if (s is null)
-            return new BaseResponse<SubscriptionPlanGetDto>("No subscription plans found", null, HttpStatusCode.NotFound);
+            return new("No subscription plans found", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<SubscriptionPlanGetDto>("Most expensive plan retrieved", s, HttpStatusCode.OK);
+        return new("Most expensive plan retrieved", s, HttpStatusCode.OK);
     }
 
     // 3) Gym sayına görə sıralanmış planlar
     public async Task<BaseResponse<List<SubscriptionPlanGetDto>>> GetPlansByGymCountAsync(bool descending = true)
     {
-        var query = _context.SubscriptionPlans
-            .Where(x => !x.IsDeleted)
+        var query = _plans
+            .GetByFiltered(x => !x.IsDeleted,
+                           include: new[] { (System.Linq.Expressions.Expression<Func<SubscriptionPlan, object>>)(x => x.Gyms) },
+                           IsTracking: false)
             .Select(x => new
             {
                 Plan = x,
@@ -291,8 +305,8 @@ public class SubscriptionPlanService : ISubscriptionPlanService
             .ToListAsync();
 
         if (list.Count == 0)
-            return new BaseResponse<List<SubscriptionPlanGetDto>>("No subscription plans found", null, HttpStatusCode.NotFound);
+            return new("No subscription plans found", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<List<SubscriptionPlanGetDto>>("Plans ordered by gym count", list, HttpStatusCode.OK);
+        return new("Plans ordered by gym count", list, HttpStatusCode.OK);
     }
 }

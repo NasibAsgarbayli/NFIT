@@ -1,7 +1,9 @@
-﻿using System.Net;
+﻿using System.Linq.Expressions;
+using System.Net;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using NFIT.Application.Abstracts.Repositories;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.GymChechkInDtos;
 using NFIT.Application.Shared;
@@ -13,13 +15,22 @@ namespace NFIT.Persistence.Services;
 
 public class GymCheckInService:IGymCheckInService
 {
-    private readonly NFITDbContext _context;
+    private readonly IGymCheckInRepository _checkins;
+    private readonly IGymQrCodeRepository _qrRepo;
+    private readonly IGymRepository _gyms;
     private readonly IHttpContextAccessor _http;
     private readonly IMembershipService _memberships;
 
-    public GymCheckInService(NFITDbContext ctx, IHttpContextAccessor http, IMembershipService memberships)
+    public GymCheckInService(
+        IGymCheckInRepository checkins,
+        IGymQrCodeRepository qrRepo,
+        IGymRepository gyms,
+        IHttpContextAccessor http,
+        IMembershipService memberships)
     {
-        _context = ctx;
+        _checkins = checkins;
+        _qrRepo = qrRepo;
+        _gyms = gyms;
         _http = http;
         _memberships = memberships;
     }
@@ -27,133 +38,123 @@ public class GymCheckInService:IGymCheckInService
     private string? UserId =>
         _http.HttpContext?.User?.FindFirstValue(ClaimTypes.NameIdentifier)
         ?? _http.HttpContext?.User?.FindFirst("sub")?.Value;
+
+    // ============== CHECK IN ==============
     public async Task<BaseResponse<Guid>> CheckInAsync(CheckInRequestDto dto)
     {
         if (dto == null)
             return new BaseResponse<Guid>("Request body is required", Guid.Empty, HttpStatusCode.BadRequest);
-
         if (string.IsNullOrWhiteSpace(UserId))
             return new BaseResponse<Guid>("Unauthorized", Guid.Empty, HttpStatusCode.Unauthorized);
-
         if (string.IsNullOrWhiteSpace(dto.QrData))
             return new BaseResponse<Guid>("QR data is required", Guid.Empty, HttpStatusCode.BadRequest);
 
         var now = DateTime.UtcNow;
 
-        await using var tx = await _context.Database.BeginTransactionAsync();
-        try
+        // 1) QR
+        var qr = await _qrRepo
+            .GetAllFiltered(q => q.QRCodeData == dto.QrData && q.IsActive && !q.IsDeleted, IsTracking: true)
+            .FirstOrDefaultAsync();
+
+        if (qr is null || (qr.ExpiresAt != null && qr.ExpiresAt <= now))
+            return new BaseResponse<Guid>("Invalid or expired QR", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (qr.IsOneTime && qr.UsedAt != null)
+            return new BaseResponse<Guid>("QR already used", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // 1.1) Gym aktivdir?
+        var gymOk = await _gyms
+            .GetAllFiltered(g => g.Id == qr.GymId && g.IsActive && !g.IsDeleted)
+            .AnyAsync();
+        if (!gymOk)
+            return new BaseResponse<Guid>("Gym is not available", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // 2) Aktiv check-in varsa blokla
+        var hasActive = await _checkins
+            .GetAllFiltered(c => c.UserId == UserId && c.Status == CheckInStatus.Active && !c.IsDeleted)
+            .AnyAsync();
+        if (hasActive)
+            return new BaseResponse<Guid>("You already have an active check-in", Guid.Empty, HttpStatusCode.Conflict);
+
+        // 3) Üzvlük gym üçün keçərlidir?
+        if (!await _memberships.HasActiveMembershipForGymAsync(UserId!, qr.GymId))
+            return new BaseResponse<Guid>("You have no active membership valid for this gym", Guid.Empty, HttpStatusCode.Forbidden);
+
+        // 4) Check-in yarat
+        var ci = new GymCheckIn
         {
-            // 1) QR (FOR UPDATE effekti üçün eyni kontekstdə track edirik)
-            var qr = await _context.GymQRCodes
-                .FirstOrDefaultAsync(q => q.QRCodeData == dto.QrData && q.IsActive && !q.IsDeleted);
+            Id = Guid.NewGuid(),
+            GymId = qr.GymId,
+            UserId = UserId!,
+            CheckInTime = now,
+            Status = CheckInStatus.Active,
+            Notes = dto.Notes
+        };
+        await _checkins.AddAsync(ci);
 
-            if (qr is null || (qr.ExpiresAt != null && qr.ExpiresAt <= now))
-                return new BaseResponse<Guid>("Invalid or expired QR", Guid.Empty, HttpStatusCode.BadRequest);
-
-            if (qr.IsOneTime && qr.UsedAt != null)
-                return new BaseResponse<Guid>("QR already used", Guid.Empty, HttpStatusCode.BadRequest);
-
-            // 1.1) GYM də aktiv/silinməyib olsun
-            var gymOk = await _context.Gyms.AnyAsync(g => g.Id == qr.GymId && g.IsActive && !g.IsDeleted);
-            if (!gymOk)
-                return new BaseResponse<Guid>("Gym is not available", Guid.Empty, HttpStatusCode.BadRequest);
-
-            // 2) Aktiv check-in varsa blokla
-            var hasActive = await _context.GymCheckIns.AnyAsync(c =>
-                c.UserId == UserId && c.Status == CheckInStatus.Active && !c.IsDeleted);
-            if (hasActive)
-                return new BaseResponse<Guid>("You already have an active check-in", Guid.Empty, HttpStatusCode.Conflict);
-
-            // 3) Membership gym üçün keçərlidirmi?
-            if (!await _memberships.HasActiveMembershipForGymAsync(UserId!, qr.GymId))
-                return new BaseResponse<Guid>("You have no active membership valid for this gym", Guid.Empty, HttpStatusCode.Forbidden);
-
-          
-            // 4) Check-in yarat
-            var ci = new GymCheckIn
-            {
-                Id = Guid.NewGuid(),
-                GymId = qr.GymId,
-                UserId = UserId!,
-                CheckInTime = now,
-                Status = CheckInStatus.Active,
-                Notes = dto.Notes
-            };
-            await _context.GymCheckIns.AddAsync(ci);
-
-            // 5) One-time QR isə — concurrency ilə işarələ
-            if (qr.IsOneTime)
-            {
-                qr.UsedAt = now;
-                _context.GymQRCodes.Update(qr);
-            }
-
-            await _context.SaveChangesAsync();  // <-- burada RowVersion yoxlanacaq
-            await tx.CommitAsync();
-
-            return new BaseResponse<Guid>("Checked in", ci.Id, HttpStatusCode.Created);
-        }
-        catch (DbUpdateConcurrencyException)
+        // 5) One-time QR isə işarələ (concurrency token varsa EF ziddiyyəti atacaq)
+        if (qr.IsOneTime)
         {
-            await tx.RollbackAsync();
-            // Eyni anda kimsə eyni one-time QR-dan istifadə edibsə buraya düşəcək
-            return new BaseResponse<Guid>("QR already used (concurrent)", Guid.Empty, HttpStatusCode.Conflict);
+            qr.UsedAt = now;
+            _qrRepo.Update(qr);
         }
-        catch
-        {
-            await tx.RollbackAsync();
-            throw;
-        }
+
+        await _checkins.SaveChangeAsync(); // eyni scope-da olduqda bütün dəyişikliklər yazılır
+
+        return new BaseResponse<Guid>("Checked in", ci.Id, HttpStatusCode.Created);
     }
 
+    // ============== CHECK OUT ==============
     public async Task<BaseResponse<string>> CheckOutAsync(CheckOutRequestDto dto)
     {
-        if (dto == null)
-            return new BaseResponse<string>("Request body is required", HttpStatusCode.BadRequest);
+        if (dto == null) return new("Request body is required", HttpStatusCode.BadRequest);
+        if (string.IsNullOrWhiteSpace(UserId)) return new("Unauthorized", HttpStatusCode.Unauthorized);
+        if (dto.CheckInId == Guid.Empty) return new("Check-in id is required", HttpStatusCode.BadRequest);
 
-        if (string.IsNullOrWhiteSpace(UserId))
-            return new BaseResponse<string>("Unauthorized", HttpStatusCode.Unauthorized);
+        // 1) MÜTLƏQ tracked entity götür
+        var ci = await _checkins
+            .GetAllFiltered(c => c.Id == dto.CheckInId && !c.IsDeleted, IsTracking: true)
+            .FirstOrDefaultAsync();
 
-        if (dto.CheckInId == Guid.Empty)
-            return new BaseResponse<string>("Check-in id is required", HttpStatusCode.BadRequest);
+        if (ci is null) return new("Check-in not found", HttpStatusCode.NotFound);
+        if (ci.UserId != UserId) return new("Forbidden", HttpStatusCode.Forbidden);
+        if (ci.Status != CheckInStatus.Active) return new("Already closed", HttpStatusCode.BadRequest);
 
-        var ci = await _context.GymCheckIns
-            .FirstOrDefaultAsync(c => c.Id == dto.CheckInId && !c.IsDeleted);
+        var now = DateTime.UtcNow;
 
-        if (ci is null)
-            return new BaseResponse<string>("Check-in not found", HttpStatusCode.NotFound);
-
-        if (ci.UserId != UserId)
-            return new BaseResponse<string>("Forbidden", HttpStatusCode.Forbidden);
-
-        if (ci.Status != CheckInStatus.Active)
-            return new BaseResponse<string>("Already closed", HttpStatusCode.BadRequest);
-
-        ci.CheckOutTime = DateTime.UtcNow;
+        ci.CheckOutTime = now;
         ci.Status = CheckInStatus.CheckedOut;
-        ci.UpdatedAt = DateTime.UtcNow;
+        ci.UpdatedAt = now;
+
+        // BU SƏTİR VACİBDİR: tracking qaranlıqdırsa belə, update-i zəmanətlə işlədir
+        _checkins.Update(ci);
 
         try
         {
-            await _context.SaveChangesAsync();
+            await _checkins.SaveChangeAsync();
         }
         catch (DbUpdateConcurrencyException)
         {
-            return new BaseResponse<string>("Concurrent update detected", HttpStatusCode.Conflict);
+            return new("Concurrent update detected", HttpStatusCode.Conflict);
         }
 
-        return new BaseResponse<string>("Checked out", HttpStatusCode.OK);
+        return new("Checked out", HttpStatusCode.OK);
     }
 
+    // ============== MY ACTIVE ==============
     public async Task<BaseResponse<CheckInGetDto?>> GetMyActiveAsync()
     {
         if (string.IsNullOrWhiteSpace(UserId))
             return new BaseResponse<CheckInGetDto?>("Unauthorized", null, HttpStatusCode.Unauthorized);
 
-        var c = await _context.GymCheckIns
-            .AsNoTracking()
-            .Include(x => x.Gym)
-            .Where(x => x.UserId == UserId && x.Status == CheckInStatus.Active && !x.IsDeleted)
+        var query = _checkins
+            .GetAllFiltered(
+                x => x.UserId == UserId && x.Status == CheckInStatus.Active && !x.IsDeleted,
+                include: new Expression<Func<GymCheckIn, object>>[] { x => x.Gym },
+                IsTracking: false)
+            .Include(x => x.Gym); // District lazım olsa: .ThenInclude(g => g.District)
+
+        var c = await query
             .OrderByDescending(x => x.CheckInTime)
             .FirstOrDefaultAsync();
 
@@ -172,16 +173,19 @@ public class GymCheckInService:IGymCheckInService
         }, HttpStatusCode.OK);
     }
 
+    // ============== MY HISTORY ==============
     public async Task<BaseResponse<List<CheckInGetDto>>> GetMyHistoryAsync(int days = 30)
     {
         if (string.IsNullOrWhiteSpace(UserId))
             return new BaseResponse<List<CheckInGetDto>>("Unauthorized", null, HttpStatusCode.Unauthorized);
 
         var since = DateTime.UtcNow.AddDays(-Math.Abs(days));
-        var list = await _context.GymCheckIns
-            .AsNoTracking()
-            .Include(x => x.Gym)
-            .Where(x => x.UserId == UserId && !x.IsDeleted && x.CheckInTime >= since)
+
+        var list = await _checkins
+            .GetAllFiltered(
+                x => x.UserId == UserId && !x.IsDeleted && x.CheckInTime >= since,
+                include: new Expression<Func<GymCheckIn, object>>[] { x => x.Gym },
+                IsTracking: false)
             .OrderByDescending(x => x.CheckInTime)
             .Select(x => new CheckInGetDto
             {
@@ -201,12 +205,13 @@ public class GymCheckInService:IGymCheckInService
         return new BaseResponse<List<CheckInGetDto>>("History retrieved", list, HttpStatusCode.OK);
     }
 
+    // ============== OCCUPANCY ==============
     public async Task<BaseResponse<int>> GetCurrentOccupancyAsync(Guid gymId)
     {
-        var count = await _context.GymCheckIns
-            .CountAsync(c => c.GymId == gymId &&
-                             c.Status == CheckInStatus.Active &&
-                             !c.IsDeleted);
+        var count = await _checkins
+            .GetAllFiltered(c => c.GymId == gymId && c.Status == CheckInStatus.Active && !c.IsDeleted)
+            .CountAsync();
+
         return new BaseResponse<int>("Occupancy retrieved", count, HttpStatusCode.OK);
     }
 }

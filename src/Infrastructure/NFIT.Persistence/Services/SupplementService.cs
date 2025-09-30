@@ -1,5 +1,7 @@
-﻿using System.Net;
+﻿using System.Linq.Expressions;
+using System.Net;
 using Microsoft.EntityFrameworkCore;
+using NFIT.Application.Abstracts.Repositories;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.SupplementDtos;
 using NFIT.Application.Shared;
@@ -10,42 +12,36 @@ namespace NFIT.Persistence.Services;
 
 public class SupplementService:ISupplementService
 {
-    private readonly NFITDbContext _context;
-    private readonly IFileService _fileService;
+    private readonly ISupplementRepository _supplements;
+    private readonly IImageRepository _images;
     private readonly ICloudinaryService _cloud;
-    public SupplementService(NFITDbContext context, IFileService fileService, ICloudinaryService cloud)
+
+    public SupplementService(
+        ISupplementRepository supplements,
+        IImageRepository images,
+        ICloudinaryService cloud)
     {
-        _context = context;
-        _fileService = fileService;
+        _supplements = supplements;
+        _images = images;
         _cloud = cloud;
     }
+
     // CREATE
     public async Task<BaseResponse<Guid>> CreateAsync(SupplementCreateDto dto)
     {
-        if (dto == null)
-            return new BaseResponse<Guid>("Body is required", Guid.Empty, HttpStatusCode.BadRequest);
-
-        if (string.IsNullOrWhiteSpace(dto.Name))
-            return new BaseResponse<Guid>("Name is required", Guid.Empty, HttpStatusCode.BadRequest);
+        if (dto == null) return new("Body is required", Guid.Empty, HttpStatusCode.BadRequest);
+        if (string.IsNullOrWhiteSpace(dto.Name)) return new("Name is required", Guid.Empty, HttpStatusCode.BadRequest);
 
         var name = dto.Name.Trim();
-        if (name.Length < 2 || name.Length > 120)
-            return new BaseResponse<Guid>("Name length must be between 2 and 120", Guid.Empty, HttpStatusCode.BadRequest);
+        if (name.Length < 2 || name.Length > 120) return new("Name length must be between 2 and 120", Guid.Empty, HttpStatusCode.BadRequest);
+        if (dto.Price < 0) return new("Price cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+        if (dto.StockQuantity < 0) return new("StockQuantity cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+        if (dto.Weight < 0) return new("Weight cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
 
-        if (dto.Price < 0)
-            return new BaseResponse<Guid>("Price cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
-
-        if (dto.StockQuantity < 0)
-            return new BaseResponse<Guid>("StockQuantity cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
-
-        if (dto.Weight < 0)
-            return new BaseResponse<Guid>("Weight cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
-
-        var dup = await _context.Supplements
-            .AnyAsync(s => !s.IsDeleted && s.Name != null &&
-                           s.Name.Trim().ToLower() == name.ToLower());
-        if (dup)
-            return new BaseResponse<Guid>("Supplement name already exists", Guid.Empty, HttpStatusCode.Conflict);
+        var dup = await _supplements
+            .GetByFiltered(s => !s.IsDeleted && s.Name != null && s.Name.Trim().ToLower() == name.ToLower(), IsTracking: false)
+            .AnyAsync();
+        if (dup) return new("Supplement name already exists", Guid.Empty, HttpStatusCode.Conflict);
 
         var entity = new Supplement
         {
@@ -62,44 +58,31 @@ public class SupplementService:ISupplementService
             UpdatedAt = DateTime.UtcNow
         };
 
-        await _context.Supplements.AddAsync(entity);
-        await _context.SaveChangesAsync();
+        await _supplements.AddAsync(entity);
+        await _supplements.SaveChangeAsync();
 
-        return new BaseResponse<Guid>("Supplement created", entity.Id, HttpStatusCode.Created);
+        return new("Supplement created", entity.Id, HttpStatusCode.Created);
     }
 
     // UPDATE
     public async Task<BaseResponse<string>> UpdateAsync(SupplementUpdateDto dto)
     {
-        if (dto == null)
-            return new BaseResponse<string>("Body is required", HttpStatusCode.BadRequest);
+        if (dto == null) return new("Body is required", HttpStatusCode.BadRequest);
+        if (string.IsNullOrWhiteSpace(dto.Name)) return new("Name is required", HttpStatusCode.BadRequest);
 
-        if (string.IsNullOrWhiteSpace(dto.Name))
-            return new BaseResponse<string>("Name is required", HttpStatusCode.BadRequest);
-
-        var entity = await _context.Supplements
-            .FirstOrDefaultAsync(s => s.Id == dto.Id && !s.IsDeleted);
-        if (entity is null)
-            return new BaseResponse<string>("Supplement not found", HttpStatusCode.NotFound);
+        var entity = await _supplements.GetByFiltered(s => s.Id == dto.Id && !s.IsDeleted).FirstOrDefaultAsync();
+        if (entity is null) return new("Supplement not found", HttpStatusCode.NotFound);
 
         var name = dto.Name.Trim();
-        if (name.Length < 2 || name.Length > 120)
-            return new BaseResponse<string>("Name length must be between 2 and 120", HttpStatusCode.BadRequest);
+        if (name.Length < 2 || name.Length > 120) return new("Name length must be between 2 and 120", HttpStatusCode.BadRequest);
+        if (dto.Price < 0) return new("Price cannot be negative", HttpStatusCode.BadRequest);
+        if (dto.StockQuantity < 0) return new("StockQuantity cannot be negative", HttpStatusCode.BadRequest);
+        if (dto.Weight < 0) return new("Weight cannot be negative", HttpStatusCode.BadRequest);
 
-        if (dto.Price < 0)
-            return new BaseResponse<string>("Price cannot be negative", HttpStatusCode.BadRequest);
-
-        if (dto.StockQuantity < 0)
-            return new BaseResponse<string>("StockQuantity cannot be negative", HttpStatusCode.BadRequest);
-
-        if (dto.Weight < 0)
-            return new BaseResponse<string>("Weight cannot be negative", HttpStatusCode.BadRequest);
-
-        var dup = await _context.Supplements.AnyAsync(s =>
-            !s.IsDeleted && s.Id != dto.Id && s.Name != null &&
-            s.Name.Trim().ToLower() == name.ToLower());
-        if (dup)
-            return new BaseResponse<string>("Another supplement with same name exists", HttpStatusCode.Conflict);
+        var dup = await _supplements
+            .GetByFiltered(s => !s.IsDeleted && s.Id != dto.Id && s.Name != null && s.Name.Trim().ToLower() == name.ToLower(), IsTracking: false)
+            .AnyAsync();
+        if (dup) return new("Another supplement with same name exists", HttpStatusCode.Conflict);
 
         entity.Name = name;
         entity.Description = dto.Description?.Trim() ?? "";
@@ -111,51 +94,50 @@ public class SupplementService:ISupplementService
         entity.IsActive = dto.IsActive;
         entity.UpdatedAt = DateTime.UtcNow;
 
-        _context.Supplements.Update(entity);
-        await _context.SaveChangesAsync();
+        _supplements.Update(entity);
+        await _supplements.SaveChangeAsync();
 
-        return new BaseResponse<string>("Supplement updated", HttpStatusCode.OK);
+        return new("Supplement updated", HttpStatusCode.OK);
     }
 
     // DELETE (soft)
     public async Task<BaseResponse<string>> DeleteAsync(Guid id)
     {
-        var entity = await _context.Supplements
-            .FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted);
-
-        if (entity is null)
-            return new BaseResponse<string>("Supplement not found", HttpStatusCode.NotFound);
+        var entity = await _supplements.GetByFiltered(s => s.Id == id && !s.IsDeleted).FirstOrDefaultAsync();
+        if (entity is null) return new("Supplement not found", HttpStatusCode.NotFound);
 
         entity.IsDeleted = true;
         entity.IsActive = false;
         entity.UpdatedAt = DateTime.UtcNow;
 
-        _context.Supplements.Update(entity);
-        await _context.SaveChangesAsync();
+        _supplements.Update(entity);
+        await _supplements.SaveChangeAsync();
 
-        return new BaseResponse<string>("Supplement deleted", HttpStatusCode.OK);
+        return new("Supplement deleted", HttpStatusCode.OK);
     }
 
     // GET BY ID
     public async Task<BaseResponse<SupplementGetDto>> GetByIdAsync(Guid id)
     {
-        var s = await _context.Supplements
-            .Include(x => x.Favourites)
-            .FirstOrDefaultAsync(su => su.Id == id && !su.IsDeleted);
+        var s = await _supplements
+            .GetByFiltered(x => x.Id == id && !x.IsDeleted,
+                           include: new Expression<Func<Supplement, object>>[] { x => x.Favourites },
+                           IsTracking: false)
+            .FirstOrDefaultAsync();
 
-        if (s is null)
-            return new BaseResponse<SupplementGetDto>("Supplement not found", null, HttpStatusCode.NotFound);
+        if (s is null) return new("Supplement not found", null, HttpStatusCode.NotFound);
 
         var dto = MapToDto(s);
-        return new BaseResponse<SupplementGetDto>("Supplement retrieved", dto, HttpStatusCode.OK);
+        return new("Supplement retrieved", dto, HttpStatusCode.OK);
     }
 
     // GET ALL (+ brand/search filter)
     public async Task<BaseResponse<List<SupplementGetDto>>> GetAllAsync(SupplementFilterDto? filter = null)
     {
-        var q = _context.Supplements
-            .Include(s => s.Favourites)
-            .Where(s => !s.IsDeleted);
+        var q = _supplements
+            .GetByFiltered(s => !s.IsDeleted,
+                           include: new Expression<Func<Supplement, object>>[] { s => s.Favourites },
+                           IsTracking: false);
 
         if (filter != null)
         {
@@ -172,59 +154,56 @@ public class SupplementService:ISupplementService
             }
         }
 
-        var list = await q.AsNoTracking()
+        var list = await q
             .OrderByDescending(s => s.CreatedAt)
             .Select(MapToDtoExpr)
             .ToListAsync();
 
-        if (list.Count == 0)
-            return new BaseResponse<List<SupplementGetDto>>("No supplements found", null, HttpStatusCode.NotFound);
+        if (list.Count == 0) return new("No supplements found", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<List<SupplementGetDto>>("Supplements retrieved", list, HttpStatusCode.OK);
+        return new("Supplements retrieved", list, HttpStatusCode.OK);
     }
 
-    // SEARCH BY NAME (shortcut)
+    // SEARCH BY NAME
     public async Task<BaseResponse<List<SupplementGetDto>>> SearchByNameAsync(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return new BaseResponse<List<SupplementGetDto>>("Name is required", null, HttpStatusCode.BadRequest);
+            return new("Name is required", null, HttpStatusCode.BadRequest);
 
         var term = name.Trim();
 
-        var list = await _context.Supplements
-            .Include(s => s.Favourites)
-            .Where(s => !s.IsDeleted && EF.Functions.Like(s.Name!, $"%{term}%"))
-            .AsNoTracking()
+        var list = await _supplements
+            .GetByFiltered(s => !s.IsDeleted && EF.Functions.Like(s.Name!, $"%{term}%"),
+                           include: new Expression<Func<Supplement, object>>[] { s => s.Favourites },
+                           IsTracking: false)
             .OrderBy(s => s.Name)
             .Select(MapToDtoExpr)
             .ToListAsync();
 
-        if (list.Count == 0)
-            return new BaseResponse<List<SupplementGetDto>>("No supplements match the search", null, HttpStatusCode.NotFound);
+        if (list.Count == 0) return new("No supplements match the search", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<List<SupplementGetDto>>("Supplements found", list, HttpStatusCode.OK);
+        return new("Supplements found", list, HttpStatusCode.OK);
     }
 
     // BY BRAND
     public async Task<BaseResponse<List<SupplementGetDto>>> GetByBrandAsync(string brand)
     {
         if (string.IsNullOrWhiteSpace(brand))
-            return new BaseResponse<List<SupplementGetDto>>("Brand is required", null, HttpStatusCode.BadRequest);
+            return new("Brand is required", null, HttpStatusCode.BadRequest);
 
         var b = brand.Trim().ToLower();
 
-        var list = await _context.Supplements
-            .Include(s => s.Favourites)
-            .Where(s => !s.IsDeleted && s.Brand != null && s.Brand.ToLower() == b)
-            .AsNoTracking()
+        var list = await _supplements
+            .GetByFiltered(s => !s.IsDeleted && s.Brand != null && s.Brand.ToLower() == b,
+                           include: new Expression<Func<Supplement, object>>[] { s => s.Favourites },
+                           IsTracking: false)
             .OrderBy(s => s.Name)
             .Select(MapToDtoExpr)
             .ToListAsync();
 
-        if (list.Count == 0)
-            return new BaseResponse<List<SupplementGetDto>>("No supplements for this brand", null, HttpStatusCode.NotFound);
+        if (list.Count == 0) return new("No supplements for this brand", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<List<SupplementGetDto>>("Brand supplements retrieved", list, HttpStatusCode.OK);
+        return new("Brand supplements retrieved", list, HttpStatusCode.OK);
     }
 
     // POPULAR (favorit sayına görə TOP N)
@@ -232,20 +211,17 @@ public class SupplementService:ISupplementService
     {
         if (top <= 0) top = 10;
 
-        var list = await _context.Supplements
-            .Include(s => s.Favourites)
-            .Where(s => !s.IsDeleted && s.IsActive)
-            .AsNoTracking()
-            .OrderByDescending(s => s.Favourites.Count(f => !f.IsDeleted)) // 👈 favorit sayına görə
+        var list = await _supplements
+            .GetByFiltered(s => !s.IsDeleted && s.IsActive, IsTracking: false)
+            .OrderByDescending(s => s.Favourites.Count(f => !f.IsDeleted))
             .ThenBy(s => s.Name)
             .Take(top)
             .Select(MapToDtoExpr)
             .ToListAsync();
 
-        if (list.Count == 0)
-            return new BaseResponse<List<SupplementGetDto>>("No popular supplements found", null, HttpStatusCode.NotFound);
+        if (list.Count == 0) return new("No popular supplements found", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<List<SupplementGetDto>>("Popular supplements retrieved", list, HttpStatusCode.OK);
+        return new("Popular supplements retrieved", list, HttpStatusCode.OK);
     }
 
     // ------ Mapping helpers ------
@@ -263,8 +239,7 @@ public class SupplementService:ISupplementService
         FavouriteCount = s.Favourites?.Count(f => !f.IsDeleted) ?? 0
     };
 
-    // Expression variant (EF Select üçün)
-    private static System.Linq.Expressions.Expression<Func<Supplement, SupplementGetDto>> MapToDtoExpr =>
+    private static Expression<Func<Supplement, SupplementGetDto>> MapToDtoExpr =>
         s => new SupplementGetDto
         {
             Id = s.Id,
@@ -278,67 +253,62 @@ public class SupplementService:ISupplementService
             IsActive = s.IsActive,
             FavouriteCount = s.Favourites.Count(f => !f.IsDeleted)
         };
+
+    // IMAGES
     public async Task<BaseResponse<string>> AddImageAsync(Guid supplementId, SupplementImageUploadDto dto)
     {
         if (dto.File == null || dto.File.Length == 0)
-            return new BaseResponse<string>("Image is required", HttpStatusCode.BadRequest);
+            return new("Image is required", HttpStatusCode.BadRequest);
 
-        var supplement = await _context.Supplements
-            .Include(s => s.Images)
-            .FirstOrDefaultAsync(s => s.Id == supplementId && !s.IsDeleted);
+        var supplement = await _supplements
+            .GetByFiltered(s => s.Id == supplementId && !s.IsDeleted,
+                           include: new Expression<Func<Supplement, object>>[] { s => s.Images })
+            .FirstOrDefaultAsync();
 
-        if (supplement is null)
-            return new BaseResponse<string>("Supplement not found", HttpStatusCode.NotFound);
+        if (supplement is null) return new("Supplement not found", HttpStatusCode.NotFound);
 
-        // Cloudinary-yə YÜKLƏ
         var folder = $"NFIT/supplements/{supplementId}";
         var (url, publicId) = await _cloud.UploadImageAsync(dto.File, folder);
-
         if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(publicId))
-            return new BaseResponse<string>("Upload failed", HttpStatusCode.BadRequest);
+            return new("Upload failed", HttpStatusCode.BadRequest);
 
         var img = new Image
         {
             Id = Guid.NewGuid(),
             ImageUrl = url,
-            PublicId = publicId,              // <-- vacib
+            PublicId = publicId,
             SupplementId = supplementId,
             IsDeleted = false,
             CreatedAt = DateTime.UtcNow
         };
 
-        await _context.Images.AddAsync(img);
-        await _context.SaveChangesAsync();
+        await _images.AddAsync(img);
+        await _images.SaveChangeAsync();
 
-        // cavabda URL qaytarırıq
-        return new BaseResponse<string>("Image added to supplement", url, HttpStatusCode.Created);
+        return new("Image added to supplement", url, HttpStatusCode.Created);
     }
 
     public async Task<BaseResponse<string>> DeleteImageAsync(Guid supplementId, Guid imageId)
     {
-        var supplement = await _context.Supplements
-         .Include(s => s.Images)
-         .FirstOrDefaultAsync(s => s.Id == supplementId && !s.IsDeleted);
+        var supplement = await _supplements
+            .GetByFiltered(s => s.Id == supplementId && !s.IsDeleted,
+                           include: new Expression<Func<Supplement, object>>[] { s => s.Images })
+            .FirstOrDefaultAsync();
 
-        if (supplement is null)
-            return new BaseResponse<string>("Supplement not found", HttpStatusCode.NotFound);
+        if (supplement is null) return new("Supplement not found", HttpStatusCode.NotFound);
 
         var image = supplement.Images?.FirstOrDefault(i => i.Id == imageId);
-        if (image is null)
-            return new BaseResponse<string>("Image not found", HttpStatusCode.NotFound);
+        if (image is null) return new("Image not found", HttpStatusCode.NotFound);
 
-        // 1) Əvvəl Cloudinary-dən sil (uğursuzsa DB-dən silməyək)
         var cloudDeleted = true;
         if (!string.IsNullOrWhiteSpace(image.PublicId))
-            cloudDeleted = await _cloud.DeleteImageAsync(image.PublicId); // yalnız "ok" uğurdur deyə ayarlamışdıq
+            cloudDeleted = await _cloud.DeleteImageAsync(image.PublicId);
 
-        if (!cloudDeleted)
-            return new BaseResponse<string>("Failed to delete from Cloudinary", HttpStatusCode.BadRequest);
+        if (!cloudDeleted) return new("Failed to delete from Cloudinary", HttpStatusCode.BadRequest);
 
-        // 2) DB-dən hard delete
-        _context.Images.Remove(image);
-        await _context.SaveChangesAsync();
+        _images.Delete(image);
+        await _images.SaveChangeAsync();
 
-        return new BaseResponse<string>("Image hard-deleted", HttpStatusCode.OK);
+        return new("Image hard-deleted", HttpStatusCode.OK);
     }
 }

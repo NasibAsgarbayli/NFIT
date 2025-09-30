@@ -1,5 +1,7 @@
-﻿using System.Net;
+﻿using System.Linq.Expressions;
+using System.Net;
 using Microsoft.EntityFrameworkCore;
+using NFIT.Application.Abstracts.Repositories;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.WorkoutDtos;
 using NFIT.Application.Shared;
@@ -11,21 +13,32 @@ namespace NFIT.Persistence.Services;
 
 public class WorkoutService : IWorkoutService
 {
-    private readonly NFITDbContext _context;
-    public WorkoutService(NFITDbContext context)
+    private readonly IRepository<Workout> _workoutRepo;
+    private readonly IRepository<Exercise> _exerciseRepo;
+    private readonly IRepository<WorkoutExercise> _weRepo;
+
+    public WorkoutService(IRepository<Workout> workoutRepo,
+                          IRepository<Exercise> exerciseRepo,
+                          IRepository<WorkoutExercise> weRepo)
     {
-        _context = context; 
+        _workoutRepo = workoutRepo;
+        _exerciseRepo = exerciseRepo;
+        _weRepo = weRepo;
     }
-    // CREATE
+
+    // ================== CREATE ==================
     public async Task<BaseResponse<Guid>> CreateAsync(WorkoutCreateDto dto)
     {
         var name = dto.Name.Trim();
-        var dup = await _context.Workouts
-            .AnyAsync(x => !x.IsDeleted && x.Name.ToLower() == name.ToLower());
+
+        var dup = await _workoutRepo
+            .GetByFiltered(x => !x.IsDeleted && x.Name.ToLower() == name.ToLower())
+            .AnyAsync();
+
         if (dup)
             return new BaseResponse<Guid>("Workout with same name exists", Guid.Empty, HttpStatusCode.Conflict);
 
-        // ===== Enum yoxlamaları =====
+        // ===== Enum checks =====
         if (!Enum.IsDefined(typeof(DifficultyLevel), dto.Difficulty))
             return new BaseResponse<Guid>("Invalid difficulty level", Guid.Empty, HttpStatusCode.BadRequest);
 
@@ -34,23 +47,22 @@ public class WorkoutService : IWorkoutService
 
         if (dto.TargetMuscles is not null)
         {
-            foreach (var muscle in dto.TargetMuscles)
-            {
-                if (!Enum.IsDefined(typeof(MuscleGroup), muscle))
+            foreach (var m in dto.TargetMuscles)
+                if (!Enum.IsDefined(typeof(MuscleGroup), m))
                     return new BaseResponse<Guid>("Invalid muscle group value", Guid.Empty, HttpStatusCode.BadRequest);
-            }
         }
 
-        // exercises yoxlama
-        var validExercises = await _context.Exercises
-            .Where(e => !e.IsDeleted && dto.Exercises.Select(x => x.ExerciseId).Contains(e.Id))
+        // ===== exercises existence =====
+        var wantedIds = dto.Exercises.Select(x => x.ExerciseId).ToHashSet();
+        var validIds = await _exerciseRepo
+            .GetByFiltered(e => !e.IsDeleted && wantedIds.Contains(e.Id))
             .Select(e => e.Id)
             .ToListAsync();
 
-        if (dto.Exercises.Any(x => !validExercises.Contains(x.ExerciseId)))
+        if (wantedIds.Except(validIds).Any())
             return new BaseResponse<Guid>("Some exercises not found", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // ===== Workout yarat =====
+        // ===== create workout =====
         var id = Guid.NewGuid();
         var workout = new Workout
         {
@@ -76,36 +88,41 @@ public class WorkoutService : IWorkoutService
             }).ToList()
         };
 
-        await _context.Workouts.AddAsync(workout);
-        await _context.SaveChangesAsync();
+        await _workoutRepo.AddAsync(workout);
+        await _workoutRepo.SaveChangeAsync();
+
         return new BaseResponse<Guid>("Workout created", id, HttpStatusCode.Created);
     }
 
-    // UPDATE
+    // ================== UPDATE ==================
     public async Task<BaseResponse<string>> UpdateAsync(WorkoutUpdateDto dto)
     {
-        // --- Guard-lar (ad + boş exercises) ---
         if (string.IsNullOrWhiteSpace(dto.Name))
             return new BaseResponse<string>("Name is required", HttpStatusCode.BadRequest);
 
         if (dto.Exercises is null || dto.Exercises.Count == 0)
             return new BaseResponse<string>("At least one exercise is required", HttpStatusCode.BadRequest);
 
-        var w = await _context.Workouts
-            .Include(x => x.WorkoutExercises)
-            .FirstOrDefaultAsync(x => x.Id == dto.Id && !x.IsDeleted);
+        // load workout + its relations (first-level include)
+        var w = await _workoutRepo
+            .GetByFiltered(x => x.Id == dto.Id && !x.IsDeleted,
+                           include: new Expression<Func<Workout, object>>[] { x => x.WorkoutExercises },
+                           IsTracking: true)
+            .FirstOrDefaultAsync();
 
-        if (w == null)
+        if (w is null)
             return new BaseResponse<string>("Workout not found", HttpStatusCode.NotFound);
 
-        // Ad unikallığı (özündən başqa)
+        // name uniqueness (except itself)
         var name = dto.Name.Trim();
-        var dup = await _context.Workouts.AnyAsync(x =>
-            !x.IsDeleted && x.Id != dto.Id && x.Name.ToLower() == name.ToLower());
+        var dup = await _workoutRepo
+            .GetByFiltered(x => !x.IsDeleted && x.Id != dto.Id && x.Name.ToLower() == name.ToLower())
+            .AnyAsync();
+
         if (dup)
             return new BaseResponse<string>("Another workout with same name exists", HttpStatusCode.Conflict);
 
-        // ===== Enum yoxlamaları =====
+        // enums
         if (!Enum.IsDefined(typeof(DifficultyLevel), dto.Difficulty))
             return new BaseResponse<string>("Invalid difficulty level", HttpStatusCode.BadRequest);
 
@@ -114,24 +131,22 @@ public class WorkoutService : IWorkoutService
 
         if (dto.TargetMuscles is not null)
         {
-            foreach (var muscle in dto.TargetMuscles)
-            {
-                if (!Enum.IsDefined(typeof(MuscleGroup), muscle))
+            foreach (var m in dto.TargetMuscles)
+                if (!Enum.IsDefined(typeof(MuscleGroup), m))
                     return new BaseResponse<string>("Invalid muscle group value", HttpStatusCode.BadRequest);
-            }
         }
 
-        // ===== Exercises mövcudluq yoxlaması =====
+        // exercises existence
         var newIds = dto.Exercises.Select(x => x.ExerciseId).ToHashSet();
-        var validExercises = await _context.Exercises
-            .Where(e => !e.IsDeleted && newIds.Contains(e.Id))
+        var validIds = await _exerciseRepo
+            .GetByFiltered(e => !e.IsDeleted && newIds.Contains(e.Id))
             .Select(e => e.Id)
             .ToListAsync();
 
-        if (newIds.Except(validExercises).Any())
+        if (newIds.Except(validIds).Any())
             return new BaseResponse<string>("Some exercises not found", HttpStatusCode.BadRequest);
 
-        // ===== Update sahələri =====
+        // update primitive fields
         w.Name = name;
         w.Description = dto.Description?.Trim() ?? "";
         w.EstimatedDuration = dto.EstimatedDuration;
@@ -143,9 +158,14 @@ public class WorkoutService : IWorkoutService
         w.IsPublic = dto.IsPublic;
         w.UpdatedAt = DateTime.UtcNow;
 
-        // Köhnə exercise-ləri sil, yenilərini yaz
-        _context.WorkoutExercises.RemoveRange(w.WorkoutExercises);
+        // remove old WE rows (repo interface-də RemoveRange yoxdur, ona görə loop)
+        if (w.WorkoutExercises is not null && w.WorkoutExercises.Count > 0)
+        {
+            foreach (var old in w.WorkoutExercises.ToList())
+                _weRepo.Delete(old);
+        }
 
+        // add new WE rows
         w.WorkoutExercises = dto.Exercises.Select(x => new WorkoutExercise
         {
             Id = Guid.NewGuid(),
@@ -157,64 +177,115 @@ public class WorkoutService : IWorkoutService
             RestTimeSeconds = x.RestTimeSeconds
         }).ToList();
 
-        await _context.SaveChangesAsync();
+        _workoutRepo.Update(w);
+        await _workoutRepo.SaveChangeAsync();
+
         return new BaseResponse<string>("Workout updated", HttpStatusCode.OK);
     }
 
-    // DELETE (soft)
+    // ================== DELETE (soft) ==================
     public async Task<BaseResponse<string>> DeleteAsync(Guid id)
     {
-        var w = await _context.Workouts.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
-        if (w == null) return new BaseResponse<string>("Workout not found", HttpStatusCode.NotFound);
+        var w = await _workoutRepo
+            .GetByFiltered(x => x.Id == id && !x.IsDeleted, IsTracking: true)
+            .FirstOrDefaultAsync();
+
+        if (w is null)
+            return new BaseResponse<string>("Workout not found", HttpStatusCode.NotFound);
 
         w.IsDeleted = true;
         w.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
+
+        _workoutRepo.Update(w);
+        await _workoutRepo.SaveChangeAsync();
+
         return new BaseResponse<string>("Workout deleted", HttpStatusCode.OK);
     }
 
-    // GET BY ID
+    // ================== GET BY ID ==================
     public async Task<BaseResponse<WorkoutGetDto>> GetByIdAsync(Guid id)
     {
-        var w = await _context.Workouts
-            .Include(x => x.WorkoutExercises).ThenInclude(we => we.Exercise)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
-        if (w == null) return new BaseResponse<WorkoutGetDto>("Workout not found", null, HttpStatusCode.NotFound);
+        var w = await _workoutRepo
+            .GetByFiltered(x => x.Id == id && !x.IsDeleted, IsTracking: false)
+            .FirstOrDefaultAsync();
+
+        if (w is null)
+            return new BaseResponse<WorkoutGetDto>("Workout not found", null, HttpStatusCode.NotFound);
+
+        // load WorkoutExercises + Exercise
+        var wes = await _weRepo
+            .GetByFiltered(we => we.WorkoutId == id && !we.IsDeleted,
+                           IsTracking: false,
+                           include: new Expression<Func<WorkoutExercise, object>>[] { we => we.Exercise })
+            .ToListAsync();
+
+        w.WorkoutExercises = wes;
 
         return new BaseResponse<WorkoutGetDto>("Workout retrieved", Map(w), HttpStatusCode.OK);
     }
 
-    // GET ALL
+    // ================== GET ALL ==================
     public async Task<BaseResponse<List<WorkoutGetDto>>> GetAllAsync()
     {
-        var list = await _context.Workouts
-            .Include(x => x.WorkoutExercises).ThenInclude(we => we.Exercise)
-            .Where(x => !x.IsDeleted)
-            .OrderBy(x => x.Name)
-            .AsNoTracking()
+        var workouts = await _workoutRepo
+            .GetAllFiltered(x => !x.IsDeleted,
+                            IsTracking: false,
+                            orderBy: x => x.Name,
+                            IsOrderByAsc: true)
             .ToListAsync();
 
-        if (!list.Any())
+        if (!workouts.Any())
             return new BaseResponse<List<WorkoutGetDto>>("No workouts found", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<List<WorkoutGetDto>>("Workouts retrieved", list.Select(Map).ToList(), HttpStatusCode.OK);
+        var ids = workouts.Select(x => x.Id).ToList();
+
+        var wes = await _weRepo
+            .GetByFiltered(we => ids.Contains(we.WorkoutId) && !we.IsDeleted,
+                           IsTracking: false,
+                           include: new Expression<Func<WorkoutExercise, object>>[] { we => we.Exercise })
+            .ToListAsync();
+
+        // group relations
+        var byWorkout = wes.GroupBy(x => x.WorkoutId).ToDictionary(g => g.Key, g => g.ToList());
+        foreach (var w in workouts)
+            w.WorkoutExercises = byWorkout.TryGetValue(w.Id, out var list) ? list : new List<WorkoutExercise>();
+
+        return new BaseResponse<List<WorkoutGetDto>>(
+            "Workouts retrieved",
+            workouts.Select(Map).ToList(),
+            HttpStatusCode.OK
+        );
     }
 
     public async Task<BaseResponse<List<WorkoutGetDto>>> GetByCategoryAsync(WorkoutCategory category)
     {
-        var list = await _context.Workouts
-            .Include(x => x.WorkoutExercises).ThenInclude(we => we.Exercise)
-            .Where(x => !x.IsDeleted && x.Category == category)
-            .AsNoTracking()
+        var workouts = await _workoutRepo
+            .GetByFiltered(x => !x.IsDeleted && x.Category == category, IsTracking: false)
             .ToListAsync();
 
-        if (!list.Any())
+        if (!workouts.Any())
             return new BaseResponse<List<WorkoutGetDto>>("No workouts for this category", null, HttpStatusCode.NotFound);
 
-        return new BaseResponse<List<WorkoutGetDto>>("Workouts retrieved", list.Select(Map).ToList(), HttpStatusCode.OK);
+        var ids = workouts.Select(x => x.Id).ToList();
+
+        var wes = await _weRepo
+            .GetByFiltered(we => ids.Contains(we.WorkoutId) && !we.IsDeleted,
+                           IsTracking: false,
+                           include: new Expression<Func<WorkoutExercise, object>>[] { we => we.Exercise })
+            .ToListAsync();
+
+        var byWorkout = wes.GroupBy(x => x.WorkoutId).ToDictionary(g => g.Key, g => g.ToList());
+        foreach (var w in workouts)
+            w.WorkoutExercises = byWorkout.TryGetValue(w.Id, out var list) ? list : new List<WorkoutExercise>();
+
+        return new BaseResponse<List<WorkoutGetDto>>(
+            "Workouts retrieved",
+            workouts.Select(Map).ToList(),
+            HttpStatusCode.OK
+        );
     }
 
+    // ================== Mapper ==================
     private static WorkoutGetDto Map(Workout w) => new()
     {
         Id = w.Id,
@@ -228,14 +299,15 @@ public class WorkoutService : IWorkoutService
         VideoUrl = w.VideoUrl,
         IsPublic = w.IsPublic,
         IsActive = !w.IsDeleted,
-        Exercises = w.WorkoutExercises?.Select(e => new WorkoutExerciseDetailDto
-        {
-            ExerciseId = e.ExerciseId,
-            ExerciseName = e.Exercise?.Name ?? "",
-            Sets = e.Sets,
-            Reps = e.Reps,
-            Duration = e.Duration,
-            RestTimeSeconds = e.RestTimeSeconds
-        }).ToList() ?? new()
+        Exercises = w.WorkoutExercises?
+            .Select(e => new WorkoutExerciseDetailDto
+            {
+                ExerciseId = e.ExerciseId,
+                ExerciseName = e.Exercise?.Name ?? "",
+                Sets = e.Sets,
+                Reps = e.Reps,
+                Duration = e.Duration,
+                RestTimeSeconds = e.RestTimeSeconds
+            }).ToList()
     };
 }

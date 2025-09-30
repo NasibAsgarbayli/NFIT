@@ -12,6 +12,7 @@ public static class ServiceRegistration
     public static void RegisterService(this IServiceCollection services)
     {
         #region Repositoires
+        services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.AddScoped<IGymRepository, GymRepository>();
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IDistrictRepository, DistrictRepository>();

@@ -23,9 +23,8 @@ public class Authentication : IAuthentication
     private readonly JwtSettings _jwtSetting;
     private readonly RoleManager<IdentityRole> _roleManager;
     private readonly IEmailService _mailService;
-    private readonly NFITDbContext _context;
 
-    public Authentication(UserManager<AppUser> userManager, SignInManager<AppUser> signInManager, IOptions<JwtSettings> jwtSetting, RoleManager<IdentityRole> roleManager, IEmailService mailService, NFITDbContext context)
+    public Authentication(UserManager<AppUser> userManager, SignInManager<AppUser> signInManager, IOptions<JwtSettings> jwtSetting, RoleManager<IdentityRole> roleManager, IEmailService mailService)
 
     {
         _userManager = userManager;
@@ -33,7 +32,6 @@ public class Authentication : IAuthentication
         _jwtSetting = jwtSetting.Value;
         _roleManager = roleManager;
         _mailService = mailService;
-        _context = context;
     }
 
     public async Task<BaseResponse<ProfileInfoDto>> GetProfileAsync(ClaimsPrincipal userPrincipal)

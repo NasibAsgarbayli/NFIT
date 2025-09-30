@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using NFIT.Application.Abstracts.Repositories;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.SupplementDtos;
 using NFIT.Application.DTOs.TrainerDtos;
@@ -16,13 +17,32 @@ namespace NFIT.Persistence.Services;
 
 public class TrainerService:ITrainerService
 {
-    private readonly NFITDbContext _ctx;
+    private readonly IRepository<Trainer> _trainerRepo;
+    private readonly IRepository<Image> _imageRepo;
+    private readonly IRepository<TrainerVideo> _videoRepo;
+    private readonly IRepository<TrainerWorkout> _workoutRepo;
+    private readonly IRepository<TrainerWorkoutExercise> _workoutExRepo;
+    private readonly IRepository<Exercise> _exerciseRepo;
+
     private readonly IHttpContextAccessor _http;
     private readonly ICloudinaryService _cloud;
 
-    public TrainerService(NFITDbContext ctx, IFileService files, IHttpContextAccessor http, ICloudinaryService cloud)
+    public TrainerService(
+        IRepository<Trainer> trainerRepo,
+        IRepository<Image> imageRepo,
+        IRepository<TrainerVideo> videoRepo,
+        IRepository<TrainerWorkout> workoutRepo,
+        IRepository<TrainerWorkoutExercise> workoutExRepo,
+        IRepository<Exercise> exerciseRepo,
+        IHttpContextAccessor http,
+        ICloudinaryService cloud)
     {
-        _ctx = ctx;
+        _trainerRepo = trainerRepo;
+        _imageRepo = imageRepo;
+        _videoRepo = videoRepo;
+        _workoutRepo = workoutRepo;
+        _workoutExRepo = workoutExRepo;
+        _exerciseRepo = exerciseRepo;
         _http = http;
         _cloud = cloud;
     }
@@ -38,8 +58,8 @@ public class TrainerService:ITrainerService
         => User?.HasClaim("permission", permission) == true;
 
     private async Task<bool> IsOwnerAsync(Guid trainerId)
-        => await _ctx.Trainers
-            .Where(t => t.Id == trainerId && !t.IsDeleted)
+        => await _trainerRepo
+            .GetByFiltered(t => t.Id == trainerId && !t.IsDeleted)
             .Select(t => t.UserId == CurrentUserId)
             .FirstOrDefaultAsync();
 
@@ -53,12 +73,12 @@ public class TrainerService:ITrainerService
         if (string.IsNullOrWhiteSpace(userId))
             return new("Unauthorized", Guid.Empty, HttpStatusCode.Unauthorized);
 
-        // Başqasının adından yaratmaq üçün permission tələb et
         if (userId != CurrentUserId && !HasPermission(Permissions.Trainer.Create))
             return new("Forbidden", Guid.Empty, HttpStatusCode.Forbidden);
 
-        // Eyni user üçün ikinci trainerin qarşısını al (opsional, tövsiyə olunur)
-        var already = await _ctx.Trainers.AnyAsync(t => t.UserId == userId && !t.IsDeleted);
+        var already = await _trainerRepo
+            .GetByFiltered(t => t.UserId == userId && !t.IsDeleted)
+            .AnyAsync();
         if (already) return new("Trainer already exists for this user", Guid.Empty, HttpStatusCode.Conflict);
 
         if (string.IsNullOrWhiteSpace(dto.FirstName) || string.IsNullOrWhiteSpace(dto.LastName))
@@ -92,16 +112,17 @@ public class TrainerService:ITrainerService
             UserId = userId
         };
 
-        await _ctx.Trainers.AddAsync(t);
-        await _ctx.SaveChangesAsync();
+        await _trainerRepo.AddAsync(t);
+        await _trainerRepo.SaveChangeAsync();
         return new("Trainer created", id, HttpStatusCode.Created);
     }
 
     public async Task<BaseResponse<List<TrainerListItemDto>>> GetByNameAsync(string name)
     {
         var s = name.Trim().ToLower();
-        var list = await _ctx.Trainers.AsNoTracking()
-            .Where(t => !t.IsDeleted && (t.FirstName + " " + t.LastName).ToLower().Contains(s))
+        var list = await _trainerRepo.GetByFiltered(
+                t => !t.IsDeleted && (t.FirstName + " " + t.LastName).ToLower().Contains(s),
+                IsTracking: false)
             .Select(t => new TrainerListItemDto
             {
                 Id = t.Id,
@@ -119,7 +140,9 @@ public class TrainerService:ITrainerService
 
     public async Task<BaseResponse<string>> UpdateAsync(TrainerUpdateDto dto)
     {
-        var t = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == dto.Id && !x.IsDeleted);
+        var t = await _trainerRepo
+            .GetByFiltered(x => x.Id == dto.Id && !x.IsDeleted, IsTracking: true)
+            .FirstOrDefaultAsync();
         if (t is null) return new("Trainer not found", HttpStatusCode.NotFound);
 
         var allowed = await OwnerOrPermissionAsync(dto.Id, Permissions.Trainer.Update);
@@ -146,18 +169,18 @@ public class TrainerService:ITrainerService
         t.InstagramUrl = dto.InstagramUrl?.Trim();
         t.YoutubeUrl = dto.YoutubeUrl?.Trim();
         t.IsActive = dto.IsActive;
-
-        // Verified ayrıca endpoint ilə edilir
         t.UpdatedAt = DateTime.UtcNow;
 
-        _ctx.Trainers.Update(t);
-        await _ctx.SaveChangesAsync();
+        _trainerRepo.Update(t);
+        await _trainerRepo.SaveChangeAsync();
         return new("Trainer updated", HttpStatusCode.OK);
     }
 
     public async Task<BaseResponse<string>> DeleteAsync(Guid id)
     {
-        var t = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
+        var t = await _trainerRepo
+            .GetByFiltered(x => x.Id == id && !x.IsDeleted, IsTracking: true)
+            .FirstOrDefaultAsync();
         if (t is null) return new("Trainer not found", HttpStatusCode.NotFound);
 
         var allowed = await OwnerOrPermissionAsync(id, Permissions.Trainer.Delete);
@@ -166,11 +189,13 @@ public class TrainerService:ITrainerService
         t.IsDeleted = true;
         t.IsActive = false;
         t.UpdatedAt = DateTime.UtcNow;
-        _ctx.Trainers.Update(t);
-        await _ctx.SaveChangesAsync();
+
+        _trainerRepo.Update(t);
+        await _trainerRepo.SaveChangeAsync();
         return new("Trainer deleted", HttpStatusCode.OK);
     }
 
+    // ============ IMAGES ============
     public async Task<BaseResponse<string>> AddImageAsync(Guid trainerId, TrainerImageUploadPhotoDto dto)
     {
         if (dto?.File == null || dto.File.Length == 0)
@@ -180,15 +205,14 @@ public class TrainerService:ITrainerService
             !dto.File.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
             return new("Only image files are allowed", HttpStatusCode.BadRequest);
 
-        var trainer = await _ctx.Trainers
-            .Include(t => t.Images)
-            .FirstOrDefaultAsync(t => t.Id == trainerId && !t.IsDeleted);
+        var trainer = await _trainerRepo
+            .GetByFiltered(t => t.Id == trainerId && !t.IsDeleted, IsTracking: false)
+            .FirstOrDefaultAsync();
         if (trainer is null) return new("Trainer not found", HttpStatusCode.NotFound);
 
         var allowed = await OwnerOrPermissionAsync(trainerId, Permissions.Trainer.AddImageAsync);
         if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
-        // Cloudinary folder
         var folder = $"NFIT/trainers/{trainerId}";
         var (url, publicId) = await _cloud.UploadImageAsync(dto.File, folder);
         if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(publicId))
@@ -198,58 +222,55 @@ public class TrainerService:ITrainerService
         {
             Id = Guid.NewGuid(),
             ImageUrl = url,
-            PublicId = publicId,     // <-- saxla
+            PublicId = publicId,
             TrainerId = trainerId,
             IsDeleted = false,
             CreatedAt = DateTime.UtcNow
         };
 
-        await _ctx.Images.AddAsync(img);
-        await _ctx.SaveChangesAsync();
+        await _imageRepo.AddAsync(img);
+        await _imageRepo.SaveChangeAsync();
 
         return new("Image added to trainer", url, HttpStatusCode.Created);
     }
 
     public async Task<BaseResponse<string>> DeleteImageAsync(Guid trainerId, Guid imageId)
     {
-        var trainer = await _ctx.Trainers
-            .Include(t => t.Images)
-            .FirstOrDefaultAsync(t => t.Id == trainerId && !t.IsDeleted);
+        var image = await _imageRepo
+            .GetByFiltered(i => i.Id == imageId && i.TrainerId == trainerId && !i.IsDeleted, IsTracking: true)
+            .FirstOrDefaultAsync();
 
-        if (trainer is null)
-            return new("Trainer not found", HttpStatusCode.NotFound);
+        if (image is null)
+            return new("Image not found", HttpStatusCode.NotFound);
 
         var allowed = await OwnerOrPermissionAsync(trainerId, Permissions.Trainer.DeleteImageAsync);
         if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
-        var image = trainer.Images?.FirstOrDefault(i => i.Id == imageId);
-        if (image is null)
-            return new("Image not found", HttpStatusCode.NotFound);
-
-        // 1) Cloudinary-dən sil (yalnız "ok" uğur say)
         var cloudDeleted = true;
         if (!string.IsNullOrWhiteSpace(image.PublicId))
             cloudDeleted = await _cloud.DeleteImageAsync(image.PublicId);
         if (!cloudDeleted)
             return new("Failed to delete from Cloudinary", HttpStatusCode.BadRequest);
 
-        // 2) DB-dən HARD sil
-        _ctx.Images.Remove(image);
-        await _ctx.SaveChangesAsync();
+        _imageRepo.Delete(image);               // HARD delete
+        await _imageRepo.SaveChangeAsync();
 
         return new("Image hard-deleted from trainer", HttpStatusCode.OK);
     }
 
+    // ============ VERIFY / TOGGLE ============
     public async Task<BaseResponse<string>> VerifyAsync(Guid id)
     {
         if (!HasPermission(Permissions.Trainer.Verify)) return new("Forbidden", HttpStatusCode.Forbidden);
 
-        var t = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
+        var t = await _trainerRepo.GetByFiltered(x => x.Id == id && !x.IsDeleted, IsTracking: true).FirstOrDefaultAsync();
         if (t is null) return new("Trainer not found", HttpStatusCode.NotFound);
 
         t.IsVerified = true;
         t.UpdatedAt = DateTime.UtcNow;
-        await _ctx.SaveChangesAsync();
+
+        _trainerRepo.Update(t);
+        await _trainerRepo.SaveChangeAsync();
         return new("Trainer verified", HttpStatusCode.OK);
     }
 
@@ -257,18 +278,20 @@ public class TrainerService:ITrainerService
     {
         if (!HasPermission(Permissions.Trainer.ToggleActive)) return new("Forbidden", HttpStatusCode.Forbidden);
 
-        var t = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
+        var t = await _trainerRepo.GetByFiltered(x => x.Id == id && !x.IsDeleted, IsTracking: true).FirstOrDefaultAsync();
         if (t is null) return new("Trainer not found", HttpStatusCode.NotFound);
 
         t.IsActive = isActive;
         t.UpdatedAt = DateTime.UtcNow;
-        await _ctx.SaveChangesAsync();
+
+        _trainerRepo.Update(t);
+        await _trainerRepo.SaveChangeAsync();
         return new(isActive ? "Activated" : "Deactivated", HttpStatusCode.OK);
     }
 
     public async Task<BaseResponse<TrainerGetDto>> GetByIdAsync(Guid id)
     {
-        var t = await _ctx.Trainers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
+        var t = await _trainerRepo.GetByFiltered(x => x.Id == id && !x.IsDeleted, IsTracking: false).FirstOrDefaultAsync();
         if (t is null) return new("Trainer not found", null, HttpStatusCode.NotFound);
 
         var dto = new TrainerGetDto
@@ -291,16 +314,16 @@ public class TrainerService:ITrainerService
 
     public async Task<BaseResponse<List<TrainerListItemDto>>> GetAllAsync(TrainerFilterDto f)
     {
-        var q = _ctx.Trainers.AsNoTracking().Where(x => !x.IsDeleted);
+        var q = _trainerRepo.GetByFiltered(x => !x.IsDeleted, IsTracking: false);
+
         if (f.OnlyActive) q = q.Where(x => x.IsActive);
         if (f.IsVerified.HasValue) q = q.Where(x => x.IsVerified == f.IsVerified.Value);
 
         if (!string.IsNullOrWhiteSpace(f.Search))
         {
             var s = f.Search.Trim().ToLower();
-            q = q.Where(x =>
-                (x.FirstName + " " + x.LastName).ToLower().Contains(s) ||
-                (x.Bio ?? "").ToLower().Contains(s));
+            q = q.Where(x => (x.FirstName + " " + x.LastName).ToLower().Contains(s) ||
+                             (x.Bio ?? "").ToLower().Contains(s));
         }
 
         if (f.Specializations is { Length: > 0 })
@@ -313,9 +336,9 @@ public class TrainerService:ITrainerService
         {
             "experience" => (f.Desc ? q.OrderByDescending(x => x.ExperienceYears) : q.OrderBy(x => x.ExperienceYears)),
             "name" => (f.Desc ? q.OrderByDescending(x => x.FirstName).ThenByDescending(x => x.LastName)
-                                    : q.OrderBy(x => x.FirstName).ThenBy(x => x.LastName)),
+                              : q.OrderBy(x => x.FirstName).ThenBy(x => x.LastName)),
             _ => (f.Desc ? q.OrderByDescending(x => x.Rating).ThenByDescending(x => x.TotalRatings)
-                                    : q.OrderBy(x => x.Rating).ThenBy(x => x.TotalRatings))
+                         : q.OrderBy(x => x.Rating).ThenBy(x => x.TotalRatings))
         };
 
         var page = Math.Max(1, f.Page);
@@ -340,8 +363,7 @@ public class TrainerService:ITrainerService
     public async Task<BaseResponse<List<TrainerListItemDto>>> GetTopAsync(int top = 10)
     {
         top = Math.Clamp(top, 1, 50);
-        var list = await _ctx.Trainers.AsNoTracking()
-            .Where(x => !x.IsDeleted && x.IsActive)
+        var list = await _trainerRepo.GetByFiltered(x => !x.IsDeleted && x.IsActive, IsTracking: false)
             .OrderByDescending(x => x.Rating).ThenByDescending(x => x.TotalRatings)
             .Take(top)
             .Select(x => new TrainerListItemDto
@@ -352,8 +374,7 @@ public class TrainerService:ITrainerService
                 TotalRatings = x.TotalRatings,
                 IsVerified = x.IsVerified,
                 IsActive = x.IsActive
-            })
-            .ToListAsync();
+            }).ToListAsync();
 
         if (list.Count == 0) return new("No trainers", null, HttpStatusCode.NotFound);
         return new("Top trainers", list, HttpStatusCode.OK);
@@ -362,8 +383,8 @@ public class TrainerService:ITrainerService
     // ================== VIDEOS ==================
     public async Task<BaseResponse<Guid>> CreateVideoAsync(TrainerVideoCreateDto dto)
     {
-        var tr = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == dto.TrainerId && !x.IsDeleted);
-        if (tr is null) return new("Trainer not found", Guid.Empty, HttpStatusCode.BadRequest);
+        var trExists = await _trainerRepo.GetByFiltered(x => x.Id == dto.TrainerId && !x.IsDeleted).AnyAsync();
+        if (!trExists) return new("Trainer not found", Guid.Empty, HttpStatusCode.BadRequest);
 
         var allowed = await OwnerOrPermissionAsync(dto.TrainerId, Permissions.Trainer.CreateVideo);
         if (!allowed) return new("Forbidden", Guid.Empty, HttpStatusCode.Forbidden);
@@ -383,18 +404,14 @@ public class TrainerService:ITrainerService
         if (dto.Duration < 0)
             return new("Duration cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
 
-        var videoUrl = dto.VideoUrl?.Trim() ?? "";
-        var thumbUrl = dto.ThumbnailUrl?.Trim();
-
-        var id = Guid.NewGuid();
         var v = new TrainerVideo
         {
-            Id = id,
+            Id = Guid.NewGuid(),
             TrainerId = dto.TrainerId,
             Title = title,
             Description = dto.Description?.Trim() ?? "",
-            VideoUrl = videoUrl,
-            ThumbnailUrl = thumbUrl,
+            VideoUrl = dto.VideoUrl?.Trim() ?? "",
+            ThumbnailUrl = dto.ThumbnailUrl?.Trim(),
             Duration = dto.Duration,
             Type = dto.Type,
             Category = dto.Category,
@@ -404,16 +421,15 @@ public class TrainerService:ITrainerService
             PublishedAt = dto.PublishedAt ?? DateTime.UtcNow
         };
 
-        await _ctx.TrainerVideos.AddAsync(v);
-        await _ctx.SaveChangesAsync();
-        return new("Video created", id, HttpStatusCode.Created);
+        await _videoRepo.AddAsync(v);
+        await _videoRepo.SaveChangeAsync();
+        return new("Video created", v.Id, HttpStatusCode.Created);
     }
 
     public async Task<BaseResponse<List<TrainerVideoListItemDto>>> GetVideosByNameAsync(string name)
     {
         var s = name.Trim().ToLower();
-        var list = await _ctx.TrainerVideos.AsNoTracking()
-            .Where(v => !v.IsDeleted && v.Title.ToLower().Contains(s))
+        var list = await _videoRepo.GetByFiltered(v => !v.IsDeleted && v.Title.ToLower().Contains(s), IsTracking: false)
             .Select(v => new TrainerVideoListItemDto
             {
                 Id = v.Id,
@@ -424,8 +440,7 @@ public class TrainerService:ITrainerService
                 ViewCount = v.ViewCount,
                 LikeCount = v.LikeCount,
                 PublishedAt = v.PublishedAt
-            })
-            .ToListAsync();
+            }).ToListAsync();
 
         if (list.Count == 0) return new("No videos found", null, HttpStatusCode.NotFound);
         return new("Videos found", list, HttpStatusCode.OK);
@@ -433,7 +448,7 @@ public class TrainerService:ITrainerService
 
     public async Task<BaseResponse<string>> UpdateVideoAsync(TrainerVideoUpdateDto dto)
     {
-        var v = await _ctx.TrainerVideos.FirstOrDefaultAsync(x => x.Id == dto.Id && !x.IsDeleted);
+        var v = await _videoRepo.GetByFiltered(x => x.Id == dto.Id && !x.IsDeleted, IsTracking: true).FirstOrDefaultAsync();
         if (v is null) return new("Video not found", HttpStatusCode.NotFound);
 
         var allowed = await OwnerOrPermissionAsync(v.TrainerId, Permissions.Trainer.UpdateVideo);
@@ -465,14 +480,14 @@ public class TrainerService:ITrainerService
         v.PublishedAt = dto.PublishedAt ?? v.PublishedAt;
         v.UpdatedAt = DateTime.UtcNow;
 
-        _ctx.TrainerVideos.Update(v);
-        await _ctx.SaveChangesAsync();
+        _videoRepo.Update(v);
+        await _videoRepo.SaveChangeAsync();
         return new("Video updated", HttpStatusCode.OK);
     }
 
     public async Task<BaseResponse<string>> DeleteVideoAsync(Guid videoId)
     {
-        var v = await _ctx.TrainerVideos.FirstOrDefaultAsync(x => x.Id == videoId && !x.IsDeleted);
+        var v = await _videoRepo.GetByFiltered(x => x.Id == videoId && !x.IsDeleted, IsTracking: true).FirstOrDefaultAsync();
         if (v is null) return new("Video not found", HttpStatusCode.NotFound);
 
         var allowed = await OwnerOrPermissionAsync(v.TrainerId, Permissions.Trainer.DeleteVideo);
@@ -480,15 +495,15 @@ public class TrainerService:ITrainerService
 
         v.IsDeleted = true;
         v.UpdatedAt = DateTime.UtcNow;
-        await _ctx.SaveChangesAsync();
+
+        _videoRepo.Update(v);
+        await _videoRepo.SaveChangeAsync();
         return new("Video deleted", HttpStatusCode.OK);
     }
 
-
-
     public async Task<BaseResponse<TrainerVideoGetDto>> GetVideoByIdAsync(Guid videoId)
     {
-        var v = await _ctx.TrainerVideos.AsNoTracking().FirstOrDefaultAsync(x => x.Id == videoId && !x.IsDeleted);
+        var v = await _videoRepo.GetByFiltered(x => x.Id == videoId && !x.IsDeleted, IsTracking: false).FirstOrDefaultAsync();
         if (v is null) return new("Video not found", null, HttpStatusCode.NotFound);
 
         var dto = new TrainerVideoGetDto
@@ -511,9 +526,8 @@ public class TrainerService:ITrainerService
 
     public async Task<BaseResponse<List<TrainerVideoListItemDto>>> GetTrainerVideosAsync(Guid trainerId, int page = 1, int pageSize = 20)
     {
-        var q = _ctx.TrainerVideos.AsNoTracking()
-            .Where(x => !x.IsDeleted && x.TrainerId == trainerId)
-            .OrderByDescending(x => x.PublishedAt);
+        var q = _videoRepo.GetByFiltered(x => !x.IsDeleted && x.TrainerId == trainerId, IsTracking: false)
+                          .OrderByDescending(x => x.PublishedAt);
 
         var pageI = Math.Max(1, page);
         var size = Math.Clamp(pageSize, 1, 100);
@@ -538,14 +552,13 @@ public class TrainerService:ITrainerService
 
     public async Task<BaseResponse<List<TrainerVideoListItemDto>>> GetVideoFeedAsync(TrainerVideoFeedFilterDto f)
     {
-        var q = _ctx.TrainerVideos.AsNoTracking().Where(x => !x.IsDeleted);
+        var q = _videoRepo.GetByFiltered(x => !x.IsDeleted, IsTracking: false);
 
         if (!string.IsNullOrWhiteSpace(f.Search))
         {
             var s = f.Search.Trim().ToLower();
             q = q.Where(x => x.Title.ToLower().Contains(s) || (x.Description ?? "").ToLower().Contains(s));
         }
-
         if (f.Category.HasValue) q = q.Where(x => x.Category == f.Category);
         if (f.Type.HasValue) q = q.Where(x => x.Type == f.Type);
         if (f.IsPremium.HasValue) q = q.Where(x => x.IsPremium == f.IsPremium.Value);
@@ -581,10 +594,8 @@ public class TrainerService:ITrainerService
     public async Task<BaseResponse<List<TrainerVideoListItemDto>>> GetRecentVideosAsync(int days = 30, int page = 1, int pageSize = 20)
     {
         var from = DateTime.UtcNow.AddDays(-Math.Max(1, days));
-
-        var q = _ctx.TrainerVideos.AsNoTracking()
-            .Where(v => !v.IsDeleted && v.PublishedAt >= from)
-            .OrderByDescending(v => v.PublishedAt);
+        var q = _videoRepo.GetByFiltered(v => !v.IsDeleted && v.PublishedAt >= from, IsTracking: false)
+                          .OrderByDescending(v => v.PublishedAt);
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -608,10 +619,9 @@ public class TrainerService:ITrainerService
 
     public async Task<BaseResponse<List<TrainerVideoListItemDto>>> GetPopularVideosAsync(int page = 1, int pageSize = 20)
     {
-        var q = _ctx.TrainerVideos.AsNoTracking()
-            .Where(v => !v.IsDeleted)
-            .OrderByDescending(v => (long)v.ViewCount * 2 + v.LikeCount)
-            .ThenByDescending(v => v.PublishedAt);
+        var q = _videoRepo.GetByFiltered(v => !v.IsDeleted, IsTracking: false)
+                          .OrderByDescending(v => (long)v.ViewCount * 2 + v.LikeCount)
+                          .ThenByDescending(v => v.PublishedAt);
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -636,8 +646,8 @@ public class TrainerService:ITrainerService
     // ================== WORKOUTS ==================
     public async Task<BaseResponse<Guid>> CreateWorkoutAsync(TrainerWorkoutCreateDto dto)
     {
-        var tr = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == dto.TrainerId && !x.IsDeleted);
-        if (tr is null) return new("Trainer not found", Guid.Empty, HttpStatusCode.BadRequest);
+        var trExists = await _trainerRepo.GetByFiltered(x => x.Id == dto.TrainerId && !x.IsDeleted).AnyAsync();
+        if (!trExists) return new("Trainer not found", Guid.Empty, HttpStatusCode.BadRequest);
 
         var allowed = await OwnerOrPermissionAsync(dto.TrainerId, Permissions.Trainer.CreateWorkout);
         if (!allowed) return new("Forbidden", Guid.Empty, HttpStatusCode.Forbidden);
@@ -665,23 +675,22 @@ public class TrainerService:ITrainerService
 
         foreach (var l in dto.Lines)
         {
-            if (l.Sets < 0) return new("Line.Sets cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
-            if (l.Reps < 0) return new("Line.Reps cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
-            if (l.Duration < 0) return new("Line.Duration cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
-            if (l.RestTimeSeconds < 0) return new("Line.RestTimeSeconds cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+            if (l.Sets < 0 || l.Reps < 0 || l.Duration < 0 || l.RestTimeSeconds < 0)
+                return new("Sets/Reps/Duration/Rest must be >= 0", Guid.Empty, HttpStatusCode.BadRequest);
+            if (l.Sets == 0 && l.Reps == 0 && l.Duration == 0)
+                return new("Each line must have either sets/reps or duration", Guid.Empty, HttpStatusCode.BadRequest);
         }
 
         var exIds = dto.Lines.Select(l => l.ExerciseId).ToHashSet();
-        var found = await _ctx.Exercises
-            .Where(e => !e.IsDeleted && exIds.Contains(e.Id))
+        var found = await _exerciseRepo
+            .GetByFiltered(e => !e.IsDeleted && exIds.Contains(e.Id))
             .Select(e => e.Id)
             .ToListAsync();
         if (exIds.Except(found).Any()) return new("Some exercises not found", Guid.Empty, HttpStatusCode.BadRequest);
 
-        var id = Guid.NewGuid();
         var w = new TrainerWorkout
         {
-            Id = id,
+            Id = Guid.NewGuid(),
             TrainerId = dto.TrainerId,
             Title = title,
             Description = dto.Description?.Trim() ?? "",
@@ -709,16 +718,17 @@ public class TrainerService:ITrainerService
             }).ToList()
         };
 
-        await _ctx.TrainerWorkouts.AddAsync(w);
-        await _ctx.SaveChangesAsync();
-        return new("Trainer workout created", id, HttpStatusCode.Created);
+        await _workoutRepo.AddAsync(w);
+        await _workoutRepo.SaveChangeAsync();
+        return new("Trainer workout created", w.Id, HttpStatusCode.Created);
     }
 
     public async Task<BaseResponse<List<TrainerWorkoutListItemDto>>> GetWorkoutsByNameAsync(string name)
     {
         var s = name.Trim().ToLower();
-        var list = await _ctx.TrainerWorkouts.AsNoTracking()
-            .Where(w => !w.IsDeleted && w.Title.ToLower().Contains(s))
+        var list = await _workoutRepo.GetByFiltered(
+                w => !w.IsDeleted && w.Title.ToLower().Contains(s),
+                IsTracking: false)
             .Select(w => new TrainerWorkoutListItemDto
             {
                 Id = w.Id,
@@ -740,9 +750,8 @@ public class TrainerService:ITrainerService
     public async Task<BaseResponse<List<TrainerWorkoutListItemDto>>> GetWorkoutsByDifficultyAsync(
         DifficultyLevel level, int page = 1, int pageSize = 20)
     {
-        var q = _ctx.TrainerWorkouts.AsNoTracking()
-            .Where(w => !w.IsDeleted && w.Difficulty == level)
-            .OrderByDescending(w => w.PublishedAt);
+        var q = _workoutRepo.GetByFiltered(w => !w.IsDeleted && w.Difficulty == level, IsTracking: false)
+                            .OrderByDescending(w => w.PublishedAt);
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -768,9 +777,8 @@ public class TrainerService:ITrainerService
     public async Task<BaseResponse<List<TrainerWorkoutListItemDto>>> GetWorkoutsByCategoryAsync(
         WorkoutCategory category, int page = 1, int pageSize = 20)
     {
-        var q = _ctx.TrainerWorkouts.AsNoTracking()
-            .Where(w => !w.IsDeleted && w.Category == category)
-            .OrderByDescending(w => w.PublishedAt);
+        var q = _workoutRepo.GetByFiltered(w => !w.IsDeleted && w.Category == category, IsTracking: false)
+                            .OrderByDescending(w => w.PublishedAt);
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -795,9 +803,7 @@ public class TrainerService:ITrainerService
 
     public async Task<BaseResponse<string>> UpdateWorkoutAsync(TrainerWorkoutUpdateDto dto)
     {
-        var w = await _ctx.TrainerWorkouts
-            .Include(x => x.WorkoutExercises)
-            .FirstOrDefaultAsync(x => x.Id == dto.Id && !x.IsDeleted);
+        var w = await _workoutRepo.GetByFiltered(x => x.Id == dto.Id && !x.IsDeleted, IsTracking: true).FirstOrDefaultAsync();
         if (w is null) return new("Workout not found", HttpStatusCode.NotFound);
 
         var allowed = await OwnerOrPermissionAsync(w.TrainerId, Permissions.Trainer.UpdateWorkout);
@@ -827,16 +833,13 @@ public class TrainerService:ITrainerService
         {
             if (l.Sets < 0 || l.Reps < 0 || l.Duration < 0 || l.RestTimeSeconds < 0)
                 return new("Sets/Reps/Duration/Rest must be >= 0", HttpStatusCode.BadRequest);
-
             if ((l.Sets == 0 && l.Reps == 0 && l.Duration == 0))
                 return new("Each line must have either sets/reps or duration", HttpStatusCode.BadRequest);
         }
 
         var exIds = dto.Lines.Select(l => l.ExerciseId).ToHashSet();
-        var found = await _ctx.Exercises
-            .Where(e => !e.IsDeleted && exIds.Contains(e.Id))
-            .Select(e => e.Id)
-            .ToListAsync();
+        var found = await _exerciseRepo.GetByFiltered(e => !e.IsDeleted && exIds.Contains(e.Id))
+                                       .Select(e => e.Id).ToListAsync();
         if (exIds.Except(found).Any())
             return new("Some exercises not found", HttpStatusCode.BadRequest);
 
@@ -853,7 +856,13 @@ public class TrainerService:ITrainerService
         w.PublishedAt = dto.PublishedAt ?? w.PublishedAt;
         w.UpdatedAt = DateTime.UtcNow;
 
-        _ctx.TrainerWorkoutExercises.RemoveRange(w.WorkoutExercises);
+        // köhnə xətlər: RemoveRange yoxdur -> loop
+        if (w.WorkoutExercises is not null)
+        {
+            foreach (var old in w.WorkoutExercises.ToList())
+                _workoutExRepo.Delete(old);
+        }
+
         w.WorkoutExercises = dto.Lines.Select(l => new TrainerWorkoutExercise
         {
             Id = Guid.NewGuid(),
@@ -867,13 +876,14 @@ public class TrainerService:ITrainerService
             VideoUrl = l.VideoUrl
         }).ToList();
 
-        await _ctx.SaveChangesAsync();
+        _workoutRepo.Update(w);
+        await _workoutRepo.SaveChangeAsync();
         return new("Workout updated", HttpStatusCode.OK);
     }
 
     public async Task<BaseResponse<string>> DeleteWorkoutAsync(Guid workoutId)
     {
-        var w = await _ctx.TrainerWorkouts.FirstOrDefaultAsync(x => x.Id == workoutId && !x.IsDeleted);
+        var w = await _workoutRepo.GetByFiltered(x => x.Id == workoutId && !x.IsDeleted, IsTracking: true).FirstOrDefaultAsync();
         if (w is null) return new("Workout not found", HttpStatusCode.NotFound);
 
         var allowed = await OwnerOrPermissionAsync(w.TrainerId, Permissions.Trainer.DeleteWorkout);
@@ -881,22 +891,25 @@ public class TrainerService:ITrainerService
 
         w.IsDeleted = true;
         w.UpdatedAt = DateTime.UtcNow;
-        await _ctx.SaveChangesAsync();
+
+        _workoutRepo.Update(w);
+        await _workoutRepo.SaveChangeAsync();
         return new("Workout deleted", HttpStatusCode.OK);
     }
 
-
-
-
-
     public async Task<BaseResponse<TrainerWorkoutGetDto>> GetWorkoutByIdAsync(Guid workoutId)
     {
-        var w = await _ctx.TrainerWorkouts
-            .Include(x => x.WorkoutExercises).ThenInclude(le => le.Exercise)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == workoutId && !x.IsDeleted);
-
+        var w = await _workoutRepo.GetByFiltered(x => x.Id == workoutId && !x.IsDeleted, IsTracking: false)
+                                  .FirstOrDefaultAsync();
         if (w is null) return new("Workout not found", null, HttpStatusCode.NotFound);
+
+        // Lines + Exercise ayrıca yüklə
+        var lines = await _workoutExRepo
+            .GetByFiltered(le => le.TrainerWorkoutId == workoutId && !le.IsDeleted,
+                           IsTracking: false,
+                           include: new System.Linq.Expressions.Expression<Func<TrainerWorkoutExercise, object>>[] { le => le.Exercise })
+            .ToListAsync();
+        w.WorkoutExercises = lines;
 
         var dto = new TrainerWorkoutGetDto
         {
@@ -914,7 +927,7 @@ public class TrainerService:ITrainerService
             ViewCount = w.ViewCount,
             LikeCount = w.LikeCount,
             PublishedAt = w.PublishedAt,
-            Lines = w.WorkoutExercises.Select(l => new TrainerWorkoutLineDto
+            Lines = w.WorkoutExercises?.Select(l => new TrainerWorkoutLineDto
             {
                 ExerciseId = l.ExerciseId,
                 Sets = l.Sets,
@@ -930,9 +943,8 @@ public class TrainerService:ITrainerService
 
     public async Task<BaseResponse<List<TrainerWorkoutListItemDto>>> GetTrainerWorkoutsAsync(Guid trainerId, int page = 1, int pageSize = 20)
     {
-        var q = _ctx.TrainerWorkouts.AsNoTracking()
-            .Where(x => !x.IsDeleted && x.TrainerId == trainerId)
-            .OrderByDescending(x => x.PublishedAt);
+        var q = _workoutRepo.GetByFiltered(x => !x.IsDeleted && x.TrainerId == trainerId, IsTracking: false)
+                            .OrderByDescending(x => x.PublishedAt);
 
         var pageI = Math.Max(1, page);
         var size = Math.Clamp(pageSize, 1, 100);
@@ -958,7 +970,7 @@ public class TrainerService:ITrainerService
 
     public async Task<BaseResponse<List<TrainerWorkoutListItemDto>>> GetWorkoutFeedAsync(TrainerWorkoutFilterDto f)
     {
-        var q = _ctx.TrainerWorkouts.AsNoTracking().Where(x => !x.IsDeleted);
+        var q = _workoutRepo.GetByFiltered(x => !x.IsDeleted, IsTracking: false);
 
         if (f.TrainerId.HasValue) q = q.Where(x => x.TrainerId == f.TrainerId.Value);
         if (f.Category.HasValue) q = q.Where(x => x.Category == f.Category.Value);

@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using NFIT.Application.Abstracts.Repositories;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.GymQrCodeDtos;
 using NFIT.Application.Shared;
@@ -11,16 +12,20 @@ namespace NFIT.Persistence.Services;
 
 public class GymQrCodeService:IGymQrCodeService
 {
-    private readonly NFITDbContext _context;
-    public GymQrCodeService(NFITDbContext context)
+    private readonly IGymRepository _gymRepo;
+    private readonly IGymQrCodeRepository _qrRepo;
+
+    public GymQrCodeService(IGymRepository gymRepo, IGymQrCodeRepository qrRepo)
     {
-        _context = context;
+        _gymRepo = gymRepo;
+        _qrRepo = qrRepo;
     }
+
     public async Task<BaseResponse<GymQrGetDto>> GetActiveAsync(Guid gymId)
     {
-        var qr = await _context.GymQRCodes
-            .AsNoTracking()
-            .FirstOrDefaultAsync(q => q.GymId == gymId && q.IsActive && !q.IsDeleted);
+        var qr = await _qrRepo
+            .GetAllFiltered(q => q.GymId == gymId && q.IsActive && !q.IsDeleted, IsTracking: false)
+            .FirstOrDefaultAsync();
 
         if (qr is null)
             return new BaseResponse<GymQrGetDto>("No active QR", null, HttpStatusCode.NotFound);
@@ -33,11 +38,14 @@ public class GymQrCodeService:IGymQrCodeService
         }, HttpStatusCode.OK);
     }
 
-    // =========== CREATE OR ROTATE (UPDATE-PRIORITY) ===========
+    // CREATE or ROTATE
     public async Task<BaseResponse<GymQrGetDto>> GenerateOrRotateAsync(Guid gymId)
     {
         // 0) gym var?
-        var gymExists = await _context.Gyms.AnyAsync(g => g.Id == gymId && !g.IsDeleted);
+        var gymExists = await _gymRepo
+            .GetAllFiltered(g => g.Id == gymId && !g.IsDeleted, IsTracking: false)
+            .AnyAsync();
+
         if (!gymExists)
             return new BaseResponse<GymQrGetDto>("Gym not found", null, HttpStatusCode.NotFound);
 
@@ -45,8 +53,10 @@ public class GymQrCodeService:IGymQrCodeService
         var bytes = RandomNumberGenerator.GetBytes(32);
         var token = Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(bytes);
 
-        // 2) tək sətir modeli: varsa UPDATE, yoxdursa ADD
-        var qr = await _context.GymQRCodes.FirstOrDefaultAsync(q => q.GymId == gymId);
+        // 2) varsa UPDATE, yoxdursa ADD
+        var qr = await _qrRepo
+            .GetAllFiltered(q => q.GymId == gymId && !q.IsDeleted, IsTracking: true)
+            .FirstOrDefaultAsync();
 
         if (qr is null)
         {
@@ -57,21 +67,20 @@ public class GymQrCodeService:IGymQrCodeService
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
             };
-            await _context.GymQRCodes.AddAsync(qr);
+            await _qrRepo.AddAsync(qr);
         }
         else
         {
             qr.QRCodeData = token;
             qr.IsActive = true;
-            // One-time istifadə edirdinsə, rotasiyada təzələyirik:
-            qr.UsedAt = null;
+            qr.UsedAt = null;                 // one-time istifadə yenilənir
             // qr.ExpiresAt = DateTime.UtcNow.AddMinutes(5); // istəsən TTL
             qr.UpdatedAt = DateTime.UtcNow;
 
-            _context.GymQRCodes.Update(qr);
+            _qrRepo.Update(qr);
         }
 
-        await _context.SaveChangesAsync();
+        await _qrRepo.SaveChangeAsync();
 
         return new BaseResponse<GymQrGetDto>("QR rotated", new GymQrGetDto
         {
@@ -81,11 +90,11 @@ public class GymQrCodeService:IGymQrCodeService
         }, HttpStatusCode.Created);
     }
 
-    // ================== DEACTIVATE ==================
     public async Task<BaseResponse<string>> DeactivateAsync(Guid gymId)
     {
-        var qr = await _context.GymQRCodes
-            .FirstOrDefaultAsync(q => q.GymId == gymId && !q.IsDeleted);
+        var qr = await _qrRepo
+            .GetAllFiltered(q => q.GymId == gymId && !q.IsDeleted, IsTracking: true)
+            .FirstOrDefaultAsync();
 
         if (qr is null || !qr.IsActive)
             return new BaseResponse<string>("No active QR", HttpStatusCode.NotFound);
@@ -93,8 +102,8 @@ public class GymQrCodeService:IGymQrCodeService
         qr.IsActive = false;
         qr.UpdatedAt = DateTime.UtcNow;
 
-        _context.GymQRCodes.Update(qr);
-        await _context.SaveChangesAsync();
+        _qrRepo.Update(qr);
+        await _qrRepo.SaveChangeAsync();
 
         return new BaseResponse<string>("QR deactivated", HttpStatusCode.OK);
     }

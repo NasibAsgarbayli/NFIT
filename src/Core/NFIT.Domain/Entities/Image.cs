@@ -3,7 +3,7 @@
 public class Image:BaseEntity
 {
     public string ImageUrl { get; set; } = null!;
-
+    public string PublicId { get; set; } = default!;
     public Guid? GymId { get; set; }
     public Gym? Gym { get; set; }
 

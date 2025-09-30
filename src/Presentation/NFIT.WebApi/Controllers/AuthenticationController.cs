@@ -40,6 +40,17 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)result.StatusCode, result);
         }
 
+        [Authorize]
+        [HttpPost("logout")]
+        [ProducesResponseType(typeof(BaseResponse<TokenResponse>), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.InternalServerError)]
+        public async Task<IActionResult> Logout()
+        {
+            var r = await _authentication.LogoutAsync(User);
+            return StatusCode((int)r.StatusCode, r);
+        }
+
         [HttpPost]
         [Authorize()]
         [ProducesResponseType(typeof(BaseResponse<TokenResponse>), (int)HttpStatusCode.OK)]

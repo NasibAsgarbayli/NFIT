@@ -8,7 +8,7 @@ public interface IAuthentication
 {
     Task<BaseResponse<string>> Register(UserRegisterDto dto);
     Task<BaseResponse<TokenResponse>> Login(UserLoginDto dto);
-
+    Task<BaseResponse<string>> LogoutAsync(ClaimsPrincipal userPrincipal);
     Task<BaseResponse<ProfileInfoDto>> GetProfileAsync(ClaimsPrincipal userPrincipal);
 
     Task<BaseResponse<string>> ConfirmEmail(string userId, string token);

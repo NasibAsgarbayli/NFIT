@@ -17,14 +17,14 @@ namespace NFIT.Persistence.Services;
 public class TrainerService:ITrainerService
 {
     private readonly NFITDbContext _ctx;
-    private readonly IFileService _files;
     private readonly IHttpContextAccessor _http;
+    private readonly ICloudinaryService _cloud;
 
-    public TrainerService(NFITDbContext ctx, IFileService files, IHttpContextAccessor http)
+    public TrainerService(NFITDbContext ctx, IFileService files, IHttpContextAccessor http, ICloudinaryService cloud)
     {
         _ctx = ctx;
-        _files = files;
         _http = http;
+        _cloud = cloud;
     }
 
     // ================== AUTH / HELPERS ==================
@@ -188,46 +188,56 @@ public class TrainerService:ITrainerService
         var allowed = await OwnerOrPermissionAsync(trainerId, Permissions.Trainer.AddImageAsync);
         if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
-        var url = await _files.UploadAsync(dto.File);
+        // Cloudinary folder
+        var folder = $"NFIT/trainers/{trainerId}";
+        var (url, publicId) = await _cloud.UploadImageAsync(dto.File, folder);
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(publicId))
+            return new("Upload failed", HttpStatusCode.BadRequest);
 
         var img = new Image
         {
             Id = Guid.NewGuid(),
             ImageUrl = url,
+            PublicId = publicId,     // <-- saxla
             TrainerId = trainerId,
             IsDeleted = false,
             CreatedAt = DateTime.UtcNow
         };
 
         await _ctx.Images.AddAsync(img);
-
         await _ctx.SaveChangesAsync();
+
         return new("Image added to trainer", url, HttpStatusCode.Created);
     }
 
     public async Task<BaseResponse<string>> DeleteImageAsync(Guid trainerId, Guid imageId)
     {
         var trainer = await _ctx.Trainers
-            .Include(s => s.Images)
-            .FirstOrDefaultAsync(s => s.Id == trainerId && !s.IsDeleted);
+            .Include(t => t.Images)
+            .FirstOrDefaultAsync(t => t.Id == trainerId && !t.IsDeleted);
 
         if (trainer is null)
-            return new BaseResponse<string>("Trainer not found", HttpStatusCode.NotFound);
+            return new("Trainer not found", HttpStatusCode.NotFound);
 
         var allowed = await OwnerOrPermissionAsync(trainerId, Permissions.Trainer.DeleteImageAsync);
         if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
-        var image = trainer.Images?.FirstOrDefault(i => i.Id == imageId && !i.IsDeleted);
+        var image = trainer.Images?.FirstOrDefault(i => i.Id == imageId);
         if (image is null)
-            return new BaseResponse<string>("Image not found", HttpStatusCode.NotFound);
+            return new("Image not found", HttpStatusCode.NotFound);
 
-        image.IsDeleted = true;
-        image.UpdatedAt = DateTime.UtcNow;
+        // 1) Cloudinary-dən sil (yalnız "ok" uğur say)
+        var cloudDeleted = true;
+        if (!string.IsNullOrWhiteSpace(image.PublicId))
+            cloudDeleted = await _cloud.DeleteImageAsync(image.PublicId);
+        if (!cloudDeleted)
+            return new("Failed to delete from Cloudinary", HttpStatusCode.BadRequest);
 
-        _ctx.Images.Update(image);
+        // 2) DB-dən HARD sil
+        _ctx.Images.Remove(image);
         await _ctx.SaveChangesAsync();
 
-        return new BaseResponse<string>("Image deleted from trainer", HttpStatusCode.OK);
+        return new("Image hard-deleted from trainer", HttpStatusCode.OK);
     }
 
     public async Task<BaseResponse<string>> VerifyAsync(Guid id)

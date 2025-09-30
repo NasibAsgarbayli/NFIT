@@ -1,3 +1,4 @@
+﻿using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
 using FluentValidation;
@@ -18,7 +19,6 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-builder.Services.AddControllers();
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddValidatorsFromAssembly(typeof(UserRegisterDtoValidator).Assembly);
@@ -33,7 +33,7 @@ builder.Services.AddSwaggerGen(options =>
         Version = "v1"
     });
 
-    // JWT ���n t?hl�k?sizlik sxemini ?lav? et
+    // JWT üçün t?hlük?sizlik sxemini ?lav? et
     options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -44,7 +44,7 @@ builder.Services.AddSwaggerGen(options =>
         Description = "JWT token daxil edin. Format: Bearer {token}"
     });
 
-    // T?hl�k?sizlik t?l?bi ?lav? olunur
+    // T?hlük?sizlik t?l?bi ?lav? olunur
     options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
     {
         {
@@ -75,6 +75,7 @@ builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
     .AddDefaultTokenProviders();
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JwtSettings"));
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
+builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("CloudinarySettings"));
 var jwtSettings = builder.Configuration.GetSection("JwtSettings").Get<JwtSettings>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddAuthentication(options =>
@@ -84,22 +85,55 @@ builder.Services.AddAuthentication(options =>
 })
     .AddJwtBearer(options =>
     {
-        options.RequireHttpsMetadata = false; // Dev ���n. Prod-da `true` olmal?d?r.
-        options.SaveToken = true;
-        options.TokenValidationParameters = new TokenValidationParameters
+    options.RequireHttpsMetadata = !builder.Environment.IsDevelopment(); // Dev-də false, Prod-da true
+    options.SaveToken = true;
+
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,              // expiry yoxlanacaq
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtSettings.Issuer,
+        ValidAudience = jwtSettings.Audience,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
+        ClockSkew = TimeSpan.Zero             // expiry-də “ləkə payı” olmasın
+    };
+
+        // 🔐 SecurityStamp yoxlaması — Logout sonrası mövcud access token-ləri keçərsizləşdirir
+        options.Events = new JwtBearerEvents
         {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
+            OnTokenValidated = async ctx =>
+            {
+                var userManager = ctx.HttpContext.RequestServices.GetRequiredService<UserManager<AppUser>>();
 
-            ValidIssuer = jwtSettings.Issuer,
-            ValidAudience = jwtSettings.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey))
-          
+                var userId = ctx.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    ctx.Fail("No user id.");
+                    return;
+                }
 
+                var user = await userManager.FindByIdAsync(userId);
+                if (user is null)
+                {
+                    ctx.Fail("User not found.");
+                    return;
+                }
+
+                // Token-in içində generator zamanı əlavə etdiyimiz security stamp
+                var tokenStamp = ctx.Principal?.FindFirst("ss")?.Value;
+
+                // Hal-hazırda DB-də olan security stamp
+                var currentStamp = await userManager.GetSecurityStampAsync(user);
+
+                if (string.IsNullOrEmpty(tokenStamp) || tokenStamp != currentStamp)
+                {
+                    ctx.Fail("Token no longer valid (stamp mismatch).");
+                }
+            }
         };
-    });
+        });
 
 
 builder.Services.AddAuthorization(options =>
@@ -125,11 +159,11 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+app.UseAuthentication();
 
 app.UseAuthorization();
+
 app.UseStaticFiles();
-
-app.UseAuthorization();
 
 app.MapControllers();
 

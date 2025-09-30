@@ -52,6 +52,7 @@ public static class ServiceRegistration
         services.AddScoped<IWorkoutService, WorkoutService>();
         services.AddScoped<IExerciseService, ExerciseService>();
         services.AddScoped<ITrainerService, TrainerService>();
+        services.AddScoped<ICloudinaryService, CloudinaryService>();
        
         #endregion
     }

@@ -25,8 +25,6 @@ public interface ITrainerService
     Task<BaseResponse<Guid>> CreateVideoAsync(TrainerVideoCreateDto dto);
     Task<BaseResponse<string>> UpdateVideoAsync(TrainerVideoUpdateDto dto);
     Task<BaseResponse<string>> DeleteVideoAsync(Guid videoId);
-    Task<BaseResponse<string>> UploadVideoFileAsync(Guid videoId, IFormFile file);
-    Task<BaseResponse<string>> UploadVideoThumbnailAsync(Guid videoId, IFormFile file);
     Task<BaseResponse<TrainerVideoGetDto>> GetVideoByIdAsync(Guid videoId);
     Task<BaseResponse<List<TrainerVideoListItemDto>>> GetTrainerVideosAsync(Guid trainerId, int page = 1, int pageSize = 20);
     Task<BaseResponse<List<TrainerVideoListItemDto>>> GetVideoFeedAsync(TrainerVideoFeedFilterDto filter);
@@ -39,8 +37,6 @@ public interface ITrainerService
     Task<BaseResponse<Guid>> CreateWorkoutAsync(TrainerWorkoutCreateDto dto);
     Task<BaseResponse<string>> UpdateWorkoutAsync(TrainerWorkoutUpdateDto dto);
     Task<BaseResponse<string>> DeleteWorkoutAsync(Guid workoutId);
-    Task<BaseResponse<string>> UploadWorkoutThumbnailAsync(Guid workoutId, IFormFile file);
-    Task<BaseResponse<string>> UploadWorkoutPreviewAsync(Guid workoutId, IFormFile file);
     Task<BaseResponse<TrainerWorkoutGetDto>> GetWorkoutByIdAsync(Guid workoutId);
     Task<BaseResponse<List<TrainerWorkoutListItemDto>>> GetTrainerWorkoutsAsync(Guid trainerId, int page = 1, int pageSize = 20);
     Task<BaseResponse<List<TrainerWorkoutListItemDto>>> GetWorkoutFeedAsync(TrainerWorkoutFilterDto filter);

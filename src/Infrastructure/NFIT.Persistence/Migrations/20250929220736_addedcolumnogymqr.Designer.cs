@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NFIT.Persistence.Contexts;
 
@@ -11,9 +12,11 @@ using NFIT.Persistence.Contexts;
 namespace NFIT.Persistence.Migrations
 {
     [DbContext(typeof(NFITDbContext))]
-    partial class NFITDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250929220736_addedcolumnogymqr")]
+    partial class addedcolumnogymqr
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -762,12 +765,6 @@ namespace NFIT.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("ConsumedByMembershipId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("ConsumedForMembershipAt")
-                        .HasColumnType("datetime2");
 
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("datetime2");

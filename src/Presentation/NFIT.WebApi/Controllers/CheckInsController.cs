@@ -17,11 +17,12 @@ namespace NFIT.WebApi.Controllers
             _service = service;
         }
         // ===== GET =====
+
         [Authorize]
         [HttpGet("me/active")]
-        [ProducesResponseType(typeof(BaseResponse<CheckInGetDto>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(BaseResponse<CheckInGetDto>), StatusCodes.Status404NotFound)]
-        [ProducesResponseType(typeof(BaseResponse<CheckInGetDto>), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(BaseResponse<CheckInGetDto?>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(BaseResponse<CheckInGetDto?>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<CheckInGetDto?>), StatusCodes.Status401Unauthorized)]
         public async Task<IActionResult> MyActive()
         {
             var result = await _service.GetMyActiveAsync();
@@ -39,22 +40,24 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)result.StatusCode, result);
         }
 
-        [AllowAnonymous] // zalın sıxlığını hamı görə bilər
-        [HttpGet("gyms/{gymId:guid}/occupancy(active users count)")]
+        // Zalın sıxlığını hamı görə bilər
+        [AllowAnonymous]
+        [HttpGet("gyms/{gymId:guid}/occupancy")]
         [ProducesResponseType(typeof(BaseResponse<int>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(BaseResponse<int>), StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> Occupancy(Guid gymId)
+        public async Task<IActionResult> Occupancy([FromRoute] Guid gymId)
         {
             var result = await _service.GetCurrentOccupancyAsync(gymId);
             return StatusCode((int)result.StatusCode, result);
         }
 
         // ===== CREATE (Check-In) =====
+
         [Authorize]
         [HttpPost]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status201Created)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status409Conflict)]
         public async Task<IActionResult> CheckIn([FromBody] CheckInRequestDto dto)
         {
             var result = await _service.CheckInAsync(dto);
@@ -62,11 +65,13 @@ namespace NFIT.WebApi.Controllers
         }
 
         // ===== UPDATE (Check-Out) =====
+
         [Authorize]
         [HttpPost("checkout")]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status409Conflict)]
         public async Task<IActionResult> CheckOut([FromBody] CheckOutRequestDto dto)
         {
             var result = await _service.CheckOutAsync(dto);
@@ -74,3 +79,4 @@ namespace NFIT.WebApi.Controllers
         }
     }
 }
+

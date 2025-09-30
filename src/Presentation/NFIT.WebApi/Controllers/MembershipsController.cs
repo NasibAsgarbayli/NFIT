@@ -16,7 +16,21 @@ namespace NFIT.WebApi.Controllers
         {
             _service = service; 
         }
-        // ===== USER (öz məlumatları) =====
+        // ========== USER (öz məlumatları) ==========
+
+        /// <summary>Delivered subscription order əsasənda membership YARAT</summary>
+        [Authorize]
+        [HttpPost("from-order")]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status409Conflict)]
+        public async Task<IActionResult> CreateFromOrder([FromBody] MembershipCreateFromOrderDto dto)
+        {
+            var r = await _service.CreateFromDeliveredOrderAsync(dto);
+            return StatusCode((int)r.StatusCode, r);
+        }
 
         /// <summary>Hal-hazırda aktiv olan üzvlüyü qaytarır</summary>
         [Authorize]
@@ -52,9 +66,9 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)r.StatusCode, r);
         }
 
-        // ===== ADMIN / MODERATOR əməliyyatları =====
+        // ========== ADMIN / MODERATOR əməliyyatları ==========
 
-        /// <summary>İstifadəçinin aktiv üzvlüyünü deaktiv et (Admin/Moderator)</summary>
+        /// <summary>İstifadəçinin aktiv üzvlüyünü deaktiv et</summary>
         [Authorize(Policy = Permissions.Membership.DeactivateUser)]
         [HttpPost("{userId}/deactivate")]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
@@ -65,7 +79,7 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)r.StatusCode, r);
         }
 
-        /// <summary>İstənilən üzvlüyü sil (soft delete) (Admin/Moderator)</summary>
+        /// <summary>İstənilən üzvlüyü sil (soft delete)</summary>
         [Authorize(Policy = Permissions.Membership.Delete)]
         [HttpDelete("{id:guid}")]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
@@ -76,7 +90,7 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)r.StatusCode, r);
         }
 
-        /// <summary>İstifadəçinin üzvlük məlumatlarını əldə et (Admin/Moderator)</summary>
+        /// <summary>İstifadəçinin üzvlük məlumatlarını əldə et</summary>
         [Authorize(Policy = Permissions.Membership.ViewUser)]
         [HttpGet("users/{userId}")]
         [ProducesResponseType(typeof(BaseResponse<MembershipGetDto>), StatusCodes.Status200OK)]
@@ -88,4 +102,5 @@ namespace NFIT.WebApi.Controllers
         }
     }
 }
+
 

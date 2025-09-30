@@ -48,11 +48,10 @@ public class OrderService:IOrderService
         if (dto?.Items is null || dto.Items.Count == 0)
             return new BaseResponse<Guid>("Cart is empty", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // PaymentMethod enum yoxlaması
         if (!Enum.IsDefined(typeof(PaymentMethod), dto.PaymentMethod))
             return new BaseResponse<Guid>("Invalid payment method", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // Quantity > 0 olmalıdır və eyni product təkrarlanırsa, yığ (istəyə görə)
+        // Eyni məhsulu birləşdir
         var merged = dto.Items
             .GroupBy(i => i.SupplementId)
             .Select(g => new { SupplementId = g.Key, Quantity = g.Sum(x => x.Quantity) })
@@ -65,8 +64,17 @@ public class OrderService:IOrderService
         var supplements = await _context.Supplements
             .Where(s => ids.Contains(s.Id) && !s.IsDeleted && s.IsActive)
             .ToListAsync();
+
         if (supplements.Count != ids.Count)
             return new BaseResponse<Guid>("Some supplements not found or inactive", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // Erkən stok yoxlaması (stok yalnız Confirm zamanı azalır)
+        foreach (var item in merged)
+        {
+            var sup = supplements.First(s => s.Id == item.SupplementId);
+            if (sup.StockQuantity < item.Quantity)
+                return new BaseResponse<Guid>($"Insufficient stock for {sup.Name}", Guid.Empty, HttpStatusCode.Conflict);
+        }
 
         var order = new Order
         {
@@ -94,15 +102,11 @@ public class OrderService:IOrderService
                 SupplementId = sup.Id,
                 SupplementPrice = unit,
                 OrderId = order.Id,
+                Quantity = item.Quantity,
                 CreatedAt = DateTime.UtcNow,
-               
             });
 
             total += unit * item.Quantity;
-
-            //(Opsional)Stok kifayətliliyi:
-            if (sup.StockQuantity < item.Quantity) return new BaseResponse<Guid>("Insufficient stock", Guid.Empty, HttpStatusCode.Conflict);
-            sup.StockQuantity -= item.Quantity; // Yaxşısı: Confirm zamanı azaltmaq
         }
 
         order.TotalPrice = total;
@@ -110,7 +114,13 @@ public class OrderService:IOrderService
         await _context.Orders.AddAsync(order);
         await _context.SaveChangesAsync();
 
-        await SendPlacedEmailsAsync(order);
+        // placed e-poçtları
+        var placedOrder = await _context.Orders
+            .Include(o => o.SubscriptionPlan)
+            .Include(o => o.OrderSupplements).ThenInclude(os => os.Supplement)
+            .FirstAsync(o => o.Id == order.Id);
+
+        await SendPlacedEmailsAsync(placedOrder);
         return new BaseResponse<Guid>("Order created (pending)", order.Id, HttpStatusCode.Created);
     }
 
@@ -128,8 +138,6 @@ public class OrderService:IOrderService
         if (plan is null)
             return new BaseResponse<Guid>("Subscription plan not found", Guid.Empty, HttpStatusCode.NotFound);
 
-       
-
         var order = new Order
         {
             Id = Guid.NewGuid(),
@@ -145,7 +153,12 @@ public class OrderService:IOrderService
         await _context.Orders.AddAsync(order);
         await _context.SaveChangesAsync();
 
-        await SendPlacedEmailsAsync(order);
+        var placedOrder = await _context.Orders
+            .Include(o => o.SubscriptionPlan)
+            .Include(o => o.OrderSupplements).ThenInclude(os => os.Supplement)
+            .FirstAsync(o => o.Id == order.Id);
+
+        await SendPlacedEmailsAsync(placedOrder);
         return new BaseResponse<Guid>("Subscription order created (pending)", order.Id, HttpStatusCode.Created);
     }
 
@@ -172,58 +185,42 @@ public class OrderService:IOrderService
             if (order.Status == SupplementOrderStatus.Delivered)
                 return new BaseResponse<string>("Order already completed", HttpStatusCode.Conflict);
 
+            // Supplement-li sifarişlər üçün stok azalt
+            if (order.OrderSupplements?.Any() == true)
+            {
+                foreach (var line in order.OrderSupplements)
+                {
+                    var sup = await _context.Supplements
+                        .FirstOrDefaultAsync(s => s.Id == line.SupplementId && !s.IsDeleted && s.IsActive);
+
+                    if (sup is null)
+                        return new BaseResponse<string>("Supplement not found during confirmation", HttpStatusCode.Conflict);
+
+                    if (sup.StockQuantity < line.Quantity)
+                        return new BaseResponse<string>($"Insufficient stock for {sup.Name}", HttpStatusCode.Conflict);
+
+                    sup.StockQuantity -= line.Quantity;
+                    sup.UpdatedAt = DateTime.UtcNow;
+                    _context.Supplements.Update(sup);
+                }
+                await _context.SaveChangesAsync();
+            }
+
+            // Statusu Delivered et
             order.Status = SupplementOrderStatus.Delivered;
             order.UpdatedAt = DateTime.UtcNow;
             _context.Orders.Update(order);
             await _context.SaveChangesAsync();
 
-            // Subscription varsa → Membership auto-create
-            if (order.SubscriptionPlanId is not null)
-            {
-                var plan = order.SubscriptionPlan!;
-
-                // varsa aktiv membership-i bitir
-                var current = await _context.Memberships
-                    .Where(m => m.UserId == UserId && m.IsActive && !m.IsDeleted && m.EndDate > DateTime.UtcNow)
-                    .OrderByDescending(m => m.StartDate)
-                    .FirstOrDefaultAsync();
-
-                if (current is not null)
-                {
-                    current.IsActive = false;
-                    current.EndDate = DateTime.UtcNow;
-                    current.UpdatedAt = DateTime.UtcNow;
-                }
-
-                var start = DateTime.UtcNow;
-                var end = plan.BillingCycle switch
-                {
-                    BillingCycle.Monthly => start.AddMonths(1),
-                    BillingCycle.Yearly => start.AddYears(1),
-                    _ => start.AddMonths(1)
-                };
-
-                var membership = new Membership
-                {
-                    Id = Guid.NewGuid(),
-                    UserId = UserId!,
-                    SubscriptionPlanId = plan.Id,
-                    StartDate = start,
-                    EndDate = end,
-                    IsActive = true,
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                await _context.Memberships.AddAsync(membership);
-                await _context.SaveChangesAsync();
-            }
-
             await tx.CommitAsync();
 
-            // --- EMAIL: user + admin (CONFIRMED) ---
+            // confirmed e-poçtları
             await SendConfirmedEmailsAsync(order);
 
-            return new BaseResponse<string>("Order confirmed", HttpStatusCode.OK);
+            // QEYD: BURADA membership YARADILMIR.
+            // User sonradan "memberships/from-order" endpointinə gedib OrderId ilə membership yaradacaq.
+
+            return new BaseResponse<string>("Order confirmed (Delivered)", HttpStatusCode.OK);
         }
         catch
         {
@@ -286,11 +283,9 @@ public class OrderService:IOrderService
         if (o is null)
             return new BaseResponse<string>("Order not found", HttpStatusCode.NotFound);
 
-        // Sadə keçid qaydası: Pending -> Delivered (və ya Cancelled)
         if (o.Status == SupplementOrderStatus.Delivered)
             return new BaseResponse<string>("Order already completed", HttpStatusCode.Conflict);
 
-        // (Opsional) Pending-dən başqa statuslara geriyə dönüşü blokla
         if (o.Status != SupplementOrderStatus.Pending && dto.Status == SupplementOrderStatus.Pending)
             return new BaseResponse<string>("Cannot revert to pending", HttpStatusCode.BadRequest);
 
@@ -322,7 +317,7 @@ public class OrderService:IOrderService
     // ===================== EMAIL HELPERS =====================
     private async Task<List<string>> GetAdminEmailsAsync()
     {
-        var admins = await _userManager.GetUsersInRoleAsync("Admin"); // Səndə permission-policy varsa, uyğun rolu istifadə et
+        var admins = await _userManager.GetUsersInRoleAsync("Admin");
         return admins
             .Where(u => !string.IsNullOrWhiteSpace(u.Email))
             .Select(u => u.Email!.Trim())
@@ -355,7 +350,7 @@ public class OrderService:IOrderService
     {
         var userSubject = order.SubscriptionPlanId is null
             ? $"Order #{order.Id} confirmed — {order.TotalPrice:C}"
-            : $"Subscription activated — order #{order.Id}";
+            : $"Subscription confirmed — order #{order.Id}";
 
         var adminSubject = order.SubscriptionPlanId is null
             ? $"[ADMIN] Order #{order.Id} confirmed — {order.TotalPrice:C}"
@@ -382,6 +377,7 @@ public class OrderService:IOrderService
         titleAdmin: "Sifariş təsdiqləndi",
         isAdmin: isAdmin);
 
+    // ⭐️ E-poçt HTML – Quantity ilə işləyir
     private static string BuildEmailHtml(Order order, string titleUser, string titleAdmin, bool isAdmin)
     {
         var title = isAdmin ? titleAdmin : titleUser;
@@ -434,7 +430,7 @@ public class OrderService:IOrderService
             {
                 var name = line.Supplement?.Name ?? "Supplement";
                 var unit = line.SupplementPrice;
-                var qty = 1; // Quantity yoxdursa 1
+                var qty = line.Quantity;
                 sb.Append($"""
                   <tr>
                     <td>{name}</td>
@@ -487,7 +483,7 @@ public class OrderService:IOrderService
         {
             SupplementId = os.SupplementId,
             Name = os.Supplement?.Name ?? "",
-            Quantity = 1, // Quantity yoxdursa 1
+            Quantity = os.Quantity,
             UnitPrice = os.SupplementPrice
         }).ToList() ?? new()
     };

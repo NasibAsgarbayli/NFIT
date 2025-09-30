@@ -14,4 +14,6 @@ public interface IGymService
 
     Task<BaseResponse<string>> AddImageAsync(Guid gymId, IFormFile image);
     Task<BaseResponse<string>> DeleteImageAsync(Guid gymId, Guid imageId);
+    Task<BaseResponse<string>> AddCategoriesOnlyAsync(Guid gymId, List<Guid> categoryIds);
+    Task<BaseResponse<string>> AddSubscriptionsOnlyAsync(Guid gymId, List<Guid> subscriptionIds);
 }

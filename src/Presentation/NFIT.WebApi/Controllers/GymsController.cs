@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using System.Net;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NFIT.Application.Abstracts.Services;
@@ -31,7 +32,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPost("{id:guid}/images")]
-        [Consumes("multipart/form-data")]               
+        [Consumes("multipart/form-data")]
         [RequestSizeLimit(20_000_000)]
         [Authorize(Policy = Permissions.Gym.AddImage)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status201Created)]
@@ -39,8 +40,35 @@ namespace NFIT.WebApi.Controllers
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> AddImage([FromRoute] Guid id, [FromForm] GymImageAddRequest request)
         {
+            if (!ModelState.IsValid || request.Image == null || request.Image.Length == 0)
+                return StatusCode(StatusCodes.Status400BadRequest,
+                    new BaseResponse<string>("Image is required", HttpStatusCode.BadRequest));
+
             var result = await _gymService.AddImageAsync(id, request.Image);
             return StatusCode((int)result.StatusCode, result);
+        }
+        // --- Categories: ADD ONLY ---
+        [HttpPost("{id:guid}/categories/add")]
+        [Authorize(Policy = Permissions.Gym.Update)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> AddCategories([FromRoute] Guid id, [FromBody] GymAddCategoriesRequest req)
+        {
+            var r = await _gymService.AddCategoriesOnlyAsync(id, req.CategoryIds);
+            return StatusCode((int)r.StatusCode, r);
+        }
+
+        // --- Subscriptions: ADD ONLY ---
+        [HttpPost("{id:guid}/subscriptions/add")]
+        [Authorize(Policy = Permissions.Gym.Update)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> AddSubscriptions([FromRoute] Guid id, [FromBody] GymAddSubscriptionsRequest req)
+        {
+            var r = await _gymService.AddSubscriptionsOnlyAsync(id, req.SubscriptionPlanIds);
+            return StatusCode((int)r.StatusCode, r);
         }
 
         /// <summary>Update an existing gym</summary>

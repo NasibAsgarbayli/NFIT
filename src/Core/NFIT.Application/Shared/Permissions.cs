@@ -90,6 +90,7 @@ public class Permissions
         public const string Update = "District.Update";
         public const string Deactivate = "District.Deactivate";
         public const string Delete = "District.Delete";
+        public const string Activate = "District.Activate";
 
         // Admin və Moderator rollarına assign etmək üçün toplu siyahı
         public static readonly List<string> All = new()
@@ -97,7 +98,8 @@ public class Permissions
             Create,
             Update,
             Deactivate,
-            Delete
+            Delete,
+            Activate
            
         };
     }

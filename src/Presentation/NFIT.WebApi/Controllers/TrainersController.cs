@@ -240,31 +240,7 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)res.StatusCode, res);
         }
 
-        [HttpPost("videos/{videoId:guid}/upload")]
-        [Consumes("multipart/form-data")]
-        [Authorize(Policy = Permissions.Trainer.UploadVideo)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> UploadVideo(Guid videoId, [FromForm] FileUploadDto dto)
-        {
-            var res = await _svc.UploadVideoFileAsync(videoId, dto.File);
-            return StatusCode((int)res.StatusCode, res);
-        }
 
-        [HttpPost("videos/{videoId:guid}/thumbnail")]
-        [Consumes("multipart/form-data")]
-        [Authorize(Policy = Permissions.Trainer.UploadVideoThumb)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> UploadVideoThumb(Guid videoId, [FromForm] FileUploadDto dto)
-        {
-            var res = await _svc.UploadVideoThumbnailAsync(videoId, dto.File);
-            return StatusCode((int)res.StatusCode, res);
-        }
 
         // ===================== WORKOUTS =====================
         [HttpGet("{trainerId:guid}/workouts")]
@@ -362,30 +338,7 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)res.StatusCode, res);
         }
 
-        [HttpPost("workouts/{workoutId:guid}/thumbnail")]
-        [Consumes("multipart/form-data")]
-        [Authorize(Policy = Permissions.Trainer.UploadWorkoutThumb)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> UploadWorkoutThumb(Guid workoutId, [FromForm] FileUploadDto dto)
-        {
-            var res = await _svc.UploadWorkoutThumbnailAsync(workoutId, dto.File);
-            return StatusCode((int)res.StatusCode, res);
-        }
 
-        [HttpPost("workouts/{workoutId:guid}/preview")]
-        [Consumes("multipart/form-data")]
-        [Authorize(Policy = Permissions.Trainer.UploadWorkoutPreview)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
-        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> UploadWorkoutPreview(Guid workoutId, [FromForm] FileUploadDto dto)
-        {
-            var res = await _svc.UploadWorkoutPreviewAsync(workoutId, dto.File);
-            return StatusCode((int)res.StatusCode, res);
-        }
+     
     }
 }

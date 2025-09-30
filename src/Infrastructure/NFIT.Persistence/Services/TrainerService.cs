@@ -19,24 +19,23 @@ public class TrainerService:ITrainerService
     private readonly NFITDbContext _ctx;
     private readonly IFileService _files;
     private readonly IHttpContextAccessor _http;
-    private readonly IAuthorizationService _auth;
 
-    public TrainerService(NFITDbContext ctx, IFileService files, IHttpContextAccessor http,IAuthorizationService auth)
+    public TrainerService(NFITDbContext ctx, IFileService files, IHttpContextAccessor http)
     {
-        _ctx = ctx; 
-        _files = files; 
+        _ctx = ctx;
+        _files = files;
         _http = http;
-        _auth = auth;
     }
 
+    // ================== AUTH / HELPERS ==================
     private ClaimsPrincipal? User => _http.HttpContext?.User;
 
     private string? CurrentUserId =>
         User?.FindFirstValue(ClaimTypes.NameIdentifier)
         ?? User?.FindFirst("sub")?.Value;
 
-    private async Task<bool> CanAsync(string policyName)
-        => User is not null && (await _auth.AuthorizeAsync(User, policyName)).Succeeded;
+    private bool HasPermission(string permission)
+        => User?.HasClaim("permission", permission) == true;
 
     private async Task<bool> IsOwnerAsync(Guid trainerId)
         => await _ctx.Trainers
@@ -44,12 +43,23 @@ public class TrainerService:ITrainerService
             .Select(t => t.UserId == CurrentUserId)
             .FirstOrDefaultAsync();
 
+    private async Task<bool> OwnerOrPermissionAsync(Guid trainerId, string permission)
+        => (await IsOwnerAsync(trainerId)) || HasPermission(permission);
+
     // ================== TRAINER ==================
     public async Task<BaseResponse<Guid>> CreateAsync(TrainerCreateDto dto)
     {
         var userId = dto.UserId ?? CurrentUserId;
         if (string.IsNullOrWhiteSpace(userId))
             return new("Unauthorized", Guid.Empty, HttpStatusCode.Unauthorized);
+
+        // Başqasının adından yaratmaq üçün permission tələb et
+        if (userId != CurrentUserId && !HasPermission(Permissions.Trainer.Create))
+            return new("Forbidden", Guid.Empty, HttpStatusCode.Forbidden);
+
+        // Eyni user üçün ikinci trainerin qarşısını al (opsional, tövsiyə olunur)
+        var already = await _ctx.Trainers.AnyAsync(t => t.UserId == userId && !t.IsDeleted);
+        if (already) return new("Trainer already exists for this user", Guid.Empty, HttpStatusCode.Conflict);
 
         if (string.IsNullOrWhiteSpace(dto.FirstName) || string.IsNullOrWhiteSpace(dto.LastName))
             return new("FirstName and LastName are required", Guid.Empty, HttpStatusCode.BadRequest);
@@ -87,7 +97,6 @@ public class TrainerService:ITrainerService
         return new("Trainer created", id, HttpStatusCode.Created);
     }
 
-
     public async Task<BaseResponse<List<TrainerListItemDto>>> GetByNameAsync(string name)
     {
         var s = name.Trim().ToLower();
@@ -97,7 +106,6 @@ public class TrainerService:ITrainerService
             {
                 Id = t.Id,
                 FullName = t.FirstName + " " + t.LastName,
-               
                 Rating = t.Rating,
                 TotalRatings = t.TotalRatings,
                 IsVerified = t.IsVerified,
@@ -114,9 +122,8 @@ public class TrainerService:ITrainerService
         var t = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == dto.Id && !x.IsDeleted);
         if (t is null) return new("Trainer not found", HttpStatusCode.NotFound);
 
-        var owner = await IsOwnerAsync(dto.Id);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
+        var allowed = await OwnerOrPermissionAsync(dto.Id, Permissions.Trainer.Update);
+        if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
         if (string.IsNullOrWhiteSpace(dto.FirstName) || string.IsNullOrWhiteSpace(dto.LastName))
             return new("FirstName and LastName are required", HttpStatusCode.BadRequest);
@@ -140,7 +147,7 @@ public class TrainerService:ITrainerService
         t.YoutubeUrl = dto.YoutubeUrl?.Trim();
         t.IsActive = dto.IsActive;
 
-        if (canModerate) t.IsVerified = dto.IsVerified;
+        // Verified ayrıca endpoint ilə edilir
         t.UpdatedAt = DateTime.UtcNow;
 
         _ctx.Trainers.Update(t);
@@ -153,9 +160,8 @@ public class TrainerService:ITrainerService
         var t = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
         if (t is null) return new("Trainer not found", HttpStatusCode.NotFound);
 
-        var owner = await IsOwnerAsync(id);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
+        var allowed = await OwnerOrPermissionAsync(id, Permissions.Trainer.Delete);
+        if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
         t.IsDeleted = true;
         t.IsActive = false;
@@ -170,7 +176,6 @@ public class TrainerService:ITrainerService
         if (dto?.File == null || dto.File.Length == 0)
             return new("Image is required", HttpStatusCode.BadRequest);
 
-        // sadə MIME yoxlaması (opsional)
         if (!string.IsNullOrWhiteSpace(dto.File.ContentType) &&
             !dto.File.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
             return new("Only image files are allowed", HttpStatusCode.BadRequest);
@@ -180,9 +185,8 @@ public class TrainerService:ITrainerService
             .FirstOrDefaultAsync(t => t.Id == trainerId && !t.IsDeleted);
         if (trainer is null) return new("Trainer not found", HttpStatusCode.NotFound);
 
-        var owner = await IsOwnerAsync(trainerId);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
+        var allowed = await OwnerOrPermissionAsync(trainerId, Permissions.Trainer.AddImageAsync);
+        if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
         var url = await _files.UploadAsync(dto.File);
 
@@ -195,12 +199,9 @@ public class TrainerService:ITrainerService
             CreatedAt = DateTime.UtcNow
         };
 
-        trainer.Images ??= new List<Image>();
-        trainer.Images.Add(img);
+        await _ctx.Images.AddAsync(img);
 
-        _ctx.Trainers.Update(trainer);
         await _ctx.SaveChangesAsync();
-
         return new("Image added to trainer", url, HttpStatusCode.Created);
     }
 
@@ -212,6 +213,9 @@ public class TrainerService:ITrainerService
 
         if (trainer is null)
             return new BaseResponse<string>("Trainer not found", HttpStatusCode.NotFound);
+
+        var allowed = await OwnerOrPermissionAsync(trainerId, Permissions.Trainer.DeleteImageAsync);
+        if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
         var image = trainer.Images?.FirstOrDefault(i => i.Id == imageId && !i.IsDeleted);
         if (image is null)
@@ -225,9 +229,10 @@ public class TrainerService:ITrainerService
 
         return new BaseResponse<string>("Image deleted from trainer", HttpStatusCode.OK);
     }
+
     public async Task<BaseResponse<string>> VerifyAsync(Guid id)
     {
-        if (!await CanAsync("Trainers.Moderate")) return new("Forbidden", HttpStatusCode.Forbidden);
+        if (!HasPermission(Permissions.Trainer.Verify)) return new("Forbidden", HttpStatusCode.Forbidden);
 
         var t = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
         if (t is null) return new("Trainer not found", HttpStatusCode.NotFound);
@@ -240,7 +245,7 @@ public class TrainerService:ITrainerService
 
     public async Task<BaseResponse<string>> ToggleActiveAsync(Guid id, bool isActive)
     {
-        if (!await CanAsync("Trainers.Moderate")) return new("Forbidden", HttpStatusCode.Forbidden);
+        if (!HasPermission(Permissions.Trainer.ToggleActive)) return new("Forbidden", HttpStatusCode.Forbidden);
 
         var t = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
         if (t is null) return new("Trainer not found", HttpStatusCode.NotFound);
@@ -350,11 +355,9 @@ public class TrainerService:ITrainerService
         var tr = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == dto.TrainerId && !x.IsDeleted);
         if (tr is null) return new("Trainer not found", Guid.Empty, HttpStatusCode.BadRequest);
 
-        var owner = await IsOwnerAsync(dto.TrainerId);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", Guid.Empty, HttpStatusCode.Forbidden);
+        var allowed = await OwnerOrPermissionAsync(dto.TrainerId, Permissions.Trainer.CreateVideo);
+        if (!allowed) return new("Forbidden", Guid.Empty, HttpStatusCode.Forbidden);
 
-        // ====== INPUT CHECKS ======
         if (string.IsNullOrWhiteSpace(dto.Title))
             return new("Title is required", Guid.Empty, HttpStatusCode.BadRequest);
         var title = dto.Title.Trim();
@@ -370,7 +373,6 @@ public class TrainerService:ITrainerService
         if (dto.Duration < 0)
             return new("Duration cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // (opsional) URL-lər üçün trim
         var videoUrl = dto.VideoUrl?.Trim() ?? "";
         var thumbUrl = dto.ThumbnailUrl?.Trim();
 
@@ -424,9 +426,8 @@ public class TrainerService:ITrainerService
         var v = await _ctx.TrainerVideos.FirstOrDefaultAsync(x => x.Id == dto.Id && !x.IsDeleted);
         if (v is null) return new("Video not found", HttpStatusCode.NotFound);
 
-        var owner = await IsOwnerAsync(v.TrainerId);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
+        var allowed = await OwnerOrPermissionAsync(v.TrainerId, Permissions.Trainer.UpdateVideo);
+        if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
         if (string.IsNullOrWhiteSpace(dto.Title))
             return new("Title is required", HttpStatusCode.BadRequest);
@@ -464,9 +465,8 @@ public class TrainerService:ITrainerService
         var v = await _ctx.TrainerVideos.FirstOrDefaultAsync(x => x.Id == videoId && !x.IsDeleted);
         if (v is null) return new("Video not found", HttpStatusCode.NotFound);
 
-        var owner = await IsOwnerAsync(v.TrainerId);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
+        var allowed = await OwnerOrPermissionAsync(v.TrainerId, Permissions.Trainer.DeleteVideo);
+        if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
         v.IsDeleted = true;
         v.UpdatedAt = DateTime.UtcNow;
@@ -474,39 +474,7 @@ public class TrainerService:ITrainerService
         return new("Video deleted", HttpStatusCode.OK);
     }
 
-    public async Task<BaseResponse<string>> UploadVideoFileAsync(Guid videoId, IFormFile file)
-    {
-        var v = await _ctx.TrainerVideos.FirstOrDefaultAsync(x => x.Id == videoId && !x.IsDeleted);
-        if (v is null) return new("Video not found", HttpStatusCode.NotFound);
 
-        var owner = await IsOwnerAsync(v.TrainerId);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
-
-        if (file == null || file.Length == 0) return new("File required", HttpStatusCode.BadRequest);
-        var url = await _files.UploadAsync(file);
-        v.VideoUrl = url;
-        v.UpdatedAt = DateTime.UtcNow;
-        await _ctx.SaveChangesAsync();
-        return new("Video file uploaded", HttpStatusCode.OK);
-    }
-
-    public async Task<BaseResponse<string>> UploadVideoThumbnailAsync(Guid videoId, IFormFile file)
-    {
-        var v = await _ctx.TrainerVideos.FirstOrDefaultAsync(x => x.Id == videoId && !x.IsDeleted);
-        if (v is null) return new("Video not found", HttpStatusCode.NotFound);
-
-        var owner = await IsOwnerAsync(v.TrainerId);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
-
-        if (file == null || file.Length == 0) return new("File required", HttpStatusCode.BadRequest);
-        var url = await _files.UploadAsync(file);
-        v.ThumbnailUrl = url;
-        v.UpdatedAt = DateTime.UtcNow;
-        await _ctx.SaveChangesAsync();
-        return new("Thumbnail uploaded", HttpStatusCode.OK);
-    }
 
     public async Task<BaseResponse<TrainerVideoGetDto>> GetVideoByIdAsync(Guid videoId)
     {
@@ -600,11 +568,7 @@ public class TrainerService:ITrainerService
         return new("Videos retrieved", list, HttpStatusCode.OK);
     }
 
-
-
- 
-    public async Task<BaseResponse<List<TrainerVideoListItemDto>>> GetRecentVideosAsync(
-    int days = 30, int page = 1, int pageSize = 20)
+    public async Task<BaseResponse<List<TrainerVideoListItemDto>>> GetRecentVideosAsync(int days = 30, int page = 1, int pageSize = 20)
     {
         var from = DateTime.UtcNow.AddDays(-Math.Max(1, days));
 
@@ -632,11 +596,8 @@ public class TrainerService:ITrainerService
         return new("Recent videos", list, HttpStatusCode.OK);
     }
 
-    public async Task<BaseResponse<List<TrainerVideoListItemDto>>> GetPopularVideosAsync(
-        int page = 1, int pageSize = 20)
+    public async Task<BaseResponse<List<TrainerVideoListItemDto>>> GetPopularVideosAsync(int page = 1, int pageSize = 20)
     {
-        // Popularlığı sadə “score” ilə ölçürük (fav/review yoxdursa belə işləyir)
-        // score = ViewCount*2 + LikeCount
         var q = _ctx.TrainerVideos.AsNoTracking()
             .Where(v => !v.IsDeleted)
             .OrderByDescending(v => (long)v.ViewCount * 2 + v.LikeCount)
@@ -668,11 +629,9 @@ public class TrainerService:ITrainerService
         var tr = await _ctx.Trainers.FirstOrDefaultAsync(x => x.Id == dto.TrainerId && !x.IsDeleted);
         if (tr is null) return new("Trainer not found", Guid.Empty, HttpStatusCode.BadRequest);
 
-        var owner = await IsOwnerAsync(dto.TrainerId);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", Guid.Empty, HttpStatusCode.Forbidden);
+        var allowed = await OwnerOrPermissionAsync(dto.TrainerId, Permissions.Trainer.CreateWorkout);
+        if (!allowed) return new("Forbidden", Guid.Empty, HttpStatusCode.Forbidden);
 
-        // ====== INPUT CHECKS ======
         if (string.IsNullOrWhiteSpace(dto.Title))
             return new("Title is required", Guid.Empty, HttpStatusCode.BadRequest);
         var title = dto.Title.Trim();
@@ -687,13 +646,13 @@ public class TrainerService:ITrainerService
 
         if (!Enum.IsDefined(typeof(MuscleGroup), dto.TargetMuscles))
             return new("Invalid muscle group", Guid.Empty, HttpStatusCode.BadRequest);
+
         if (dto.EstimatedDuration < 1)
             return new("EstimatedDuration must be >= 1 minute", Guid.Empty, HttpStatusCode.BadRequest);
 
         if (dto.Lines == null || dto.Lines.Count == 0)
             return new("At least one exercise line is required", Guid.Empty, HttpStatusCode.BadRequest);
 
-        // Lines: sahə yoxlamaları
         foreach (var l in dto.Lines)
         {
             if (l.Sets < 0) return new("Line.Sets cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
@@ -767,8 +726,9 @@ public class TrainerService:ITrainerService
         if (list.Count == 0) return new("No workouts found", null, HttpStatusCode.NotFound);
         return new("Workouts found", list, HttpStatusCode.OK);
     }
+
     public async Task<BaseResponse<List<TrainerWorkoutListItemDto>>> GetWorkoutsByDifficultyAsync(
-    DifficultyLevel level, int page = 1, int pageSize = 20)
+        DifficultyLevel level, int page = 1, int pageSize = 20)
     {
         var q = _ctx.TrainerWorkouts.AsNoTracking()
             .Where(w => !w.IsDeleted && w.Difficulty == level)
@@ -830,9 +790,8 @@ public class TrainerService:ITrainerService
             .FirstOrDefaultAsync(x => x.Id == dto.Id && !x.IsDeleted);
         if (w is null) return new("Workout not found", HttpStatusCode.NotFound);
 
-        var owner = await IsOwnerAsync(w.TrainerId);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
+        var allowed = await OwnerOrPermissionAsync(w.TrainerId, Permissions.Trainer.UpdateWorkout);
+        if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
         if (string.IsNullOrWhiteSpace(dto.Title))
             return new("Title is required", HttpStatusCode.BadRequest);
@@ -846,7 +805,7 @@ public class TrainerService:ITrainerService
             return new("Invalid difficulty", HttpStatusCode.BadRequest);
 
         if (!Enum.IsDefined(typeof(MuscleGroup), dto.TargetMuscles))
-            return new BaseResponse<string>("Invalid muscle group", HttpStatusCode.BadRequest);
+            return new("Invalid muscle group", HttpStatusCode.BadRequest);
 
         if (dto.EstimatedDuration < 0)
             return new("EstimatedDuration cannot be negative", HttpStatusCode.BadRequest);
@@ -907,9 +866,8 @@ public class TrainerService:ITrainerService
         var w = await _ctx.TrainerWorkouts.FirstOrDefaultAsync(x => x.Id == workoutId && !x.IsDeleted);
         if (w is null) return new("Workout not found", HttpStatusCode.NotFound);
 
-        var owner = await IsOwnerAsync(w.TrainerId);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
+        var allowed = await OwnerOrPermissionAsync(w.TrainerId, Permissions.Trainer.DeleteWorkout);
+        if (!allowed) return new("Forbidden", HttpStatusCode.Forbidden);
 
         w.IsDeleted = true;
         w.UpdatedAt = DateTime.UtcNow;
@@ -917,39 +875,9 @@ public class TrainerService:ITrainerService
         return new("Workout deleted", HttpStatusCode.OK);
     }
 
-    public async Task<BaseResponse<string>> UploadWorkoutThumbnailAsync(Guid workoutId, IFormFile file)
-    {
-        var w = await _ctx.TrainerWorkouts.FirstOrDefaultAsync(x => x.Id == workoutId && !x.IsDeleted);
-        if (w is null) return new("Workout not found", HttpStatusCode.NotFound);
 
-        var owner = await IsOwnerAsync(w.TrainerId);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
 
-        if (file == null || file.Length == 0) return new("File required", HttpStatusCode.BadRequest);
-        var url = await _files.UploadAsync(file);
-        w.ThumbnailUrl = url;
-        w.UpdatedAt = DateTime.UtcNow;
-        await _ctx.SaveChangesAsync();
-        return new("Thumbnail uploaded", HttpStatusCode.OK);
-    }
 
-    public async Task<BaseResponse<string>> UploadWorkoutPreviewAsync(Guid workoutId, IFormFile file)
-    {
-        var w = await _ctx.TrainerWorkouts.FirstOrDefaultAsync(x => x.Id == workoutId && !x.IsDeleted);
-        if (w is null) return new("Workout not found", HttpStatusCode.NotFound);
-
-        var owner = await IsOwnerAsync(w.TrainerId);
-        var canModerate = await CanAsync("Trainers.Moderate");
-        if (!(owner || canModerate)) return new("Forbidden", HttpStatusCode.Forbidden);
-
-        if (file == null || file.Length == 0) return new("File required", HttpStatusCode.BadRequest);
-        var url = await _files.UploadAsync(file);
-        w.PreviewVideoUrl = url;
-        w.UpdatedAt = DateTime.UtcNow;
-        await _ctx.SaveChangesAsync();
-        return new("Preview uploaded", HttpStatusCode.OK);
-    }
 
     public async Task<BaseResponse<TrainerWorkoutGetDto>> GetWorkoutByIdAsync(Guid workoutId)
     {
@@ -1055,8 +983,6 @@ public class TrainerService:ITrainerService
         if (list.Count == 0) return new("No workouts", null, HttpStatusCode.NotFound);
         return new("Workouts retrieved", list, HttpStatusCode.OK);
     }
-
- 
 
 
 

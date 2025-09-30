@@ -288,7 +288,7 @@ public class SupplementService:ISupplementService
         if (supplement is null)
             return new BaseResponse<string>("Supplement not found", HttpStatusCode.NotFound);
 
-        var url = await _fileService.UploadAsync(dto.File); // məsələn: /uploads/xyz.jpg
+        var url = await _fileService.UploadAsync(dto.File);
 
         var img = new Image
         {
@@ -299,13 +299,10 @@ public class SupplementService:ISupplementService
             CreatedAt = DateTime.UtcNow
         };
 
-        supplement.Images ??= new List<Image>();
-        supplement.Images.Add(img);
-
-        _context.Supplements.Update(supplement);
+        // Supplement-ə toxunmuruq, sadəcə Image insert edirik
+        await _context.Images.AddAsync(img);
         await _context.SaveChangesAsync();
 
-        // Data sahəsində URL-i qaytarırıq
         return new BaseResponse<string>("Image added to supplement", url, HttpStatusCode.Created);
     }
 

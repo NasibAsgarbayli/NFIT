@@ -164,21 +164,26 @@ public class CategoryService:ICategoryService
                 .ThenInclude(g => g.District)
             .Include(c => c.Gyms)
                 .ThenInclude(g => g.GymCategories)
+                    .ThenInclude(gc => gc.Category) // <-- KATEQORIYA adlarını yığmaq üçün
             .Include(c => c.Gyms)
                 .ThenInclude(g => g.AvailableSubscriptions)
+            .AsNoTracking()
             .FirstOrDefaultAsync(c => c.Id == id && !c.IsDeleted);
 
         if (category is null)
             return new BaseResponse<CategoryWithGymsDto>("Category not found", null, HttpStatusCode.NotFound);
 
+        var activeGyms = (category.Gyms ?? new List<Domain.Entities.Gym>())
+            .Where(g => !g.IsDeleted)
+            .ToList();
+
         var dto = new CategoryWithGymsDto
         {
             Id = category.Id,
-            Name = category.Name,
+            Name = category.Name,            // baxılan kateqoriya adı
             Description = category.Description,
-            GymCount = category.Gyms?.Count(g => !g.IsDeleted) ?? 0,
-            Gyms = (category.Gyms ?? new List<Domain.Entities.Gym>())
-                .Where(g => !g.IsDeleted)
+            GymCount = activeGyms.Count,
+            Gyms = activeGyms
                 .OrderByDescending(g => g.IsPremium)
                 .ThenBy(g => g.Name)
                 .Select(g => new GymListItemDto
@@ -190,13 +195,23 @@ public class CategoryService:ICategoryService
                     IsPremium = g.IsPremium,
                     IsActive = g.IsActive,
                     Rating = g.Rating,
-                    CategoryCount = g.GymCategories?.Count ?? 0,
-                    SubscriptionCount = g.AvailableSubscriptions?.Count ?? 0
+                    CategoryCount = g.GymCategories?.Count(gc => !gc.IsDeleted) ?? 0,
+                    SubscriptionCount = g.AvailableSubscriptions?.Count(a => !a.IsDeleted) ?? 0,
+                    CategoryNames = (g.GymCategories ?? new List<Domain.Entities.GymCategory>())
+                        .Where(gc => !gc.IsDeleted && gc.Category != null && !gc.Category.IsDeleted)
+                        .Select(gc => gc.Category!.Name)
+                        .Distinct()
+                        .ToList()
                 })
                 .ToList()
         };
 
-        return new BaseResponse<CategoryWithGymsDto>("Category with gyms retrieved", dto, HttpStatusCode.OK);
+        // BOŞ OLAN HAL: data boş gəlir + mesajda açıq yazılır
+        var message = dto.GymCount == 0
+            ? "Bu kateqoriyaya aid gym yoxdur"
+            : "Category with gyms retrieved";
+
+        return new BaseResponse<CategoryWithGymsDto>(message, dto, HttpStatusCode.OK);
     }
 
     // 🔽 3) Category sayını gətir

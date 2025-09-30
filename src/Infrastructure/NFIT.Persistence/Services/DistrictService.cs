@@ -134,14 +134,46 @@ public class DistrictService:IDistrictService
     // GYM COUNT (opsional: yalnız aktiv gym-lər)
     public async Task<BaseResponse<int>> GetGymCountByDistrictAsync(Guid districtId, bool onlyActiveGyms = true)
     {
-        var exists = await _context.Districts.AnyAsync(d => d.Id == districtId && !d.IsDeleted);
-        if (!exists)
+        // District tap və həm IsDeleted həm də IsActive statusunu yoxla
+        var district = await _context.Districts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == districtId && !d.IsDeleted);
+
+        if (district is null)
             return new BaseResponse<int>("District not found", 0, HttpStatusCode.NotFound);
 
+        if (!district.IsActive)
+            return new BaseResponse<int>("District is deactivated and cannot be used", 0, HttpStatusCode.BadRequest);
+        // BadRequest və ya Forbidden – sənin API konvensiyasına uyğun seç.
+
+        // Gym count
         var gyms = _context.Gyms.Where(g => !g.IsDeleted && g.DistrictId == districtId);
-        if (onlyActiveGyms) gyms = gyms.Where(g => g.IsActive);
+        if (onlyActiveGyms)
+            gyms = gyms.Where(g => g.IsActive);
 
         var count = await gyms.CountAsync();
         return new BaseResponse<int>("Gym count retrieved", count, HttpStatusCode.OK);
     }
+    // ACTIVATE (deactivated district-i yenidən aktiv etmək)
+    public async Task<BaseResponse<string>> ActivateDistrictAsync(Guid id)
+    {
+        var district = await _context.Districts
+            .FirstOrDefaultAsync(d => d.Id == id && !d.IsDeleted);
+
+        if (district is null)
+            return new BaseResponse<string>("District not found", HttpStatusCode.NotFound);
+
+        if (district.IsActive)
+            return new BaseResponse<string>("District is already active", HttpStatusCode.OK);
+
+        district.IsActive = true;
+        district.UpdatedAt = DateTime.UtcNow;
+
+        _context.Districts.Update(district);
+        await _context.SaveChangesAsync();
+
+        return new BaseResponse<string>("District activated", HttpStatusCode.OK);
+    }
+
+
 }

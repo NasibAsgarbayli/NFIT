@@ -11,5 +11,6 @@ public class OrderSupplement:BaseEntity
     public decimal SupplementPrice { get; set; }
     public Guid OrderId { get; set; }
     public Order Order { get; set; } = null!;
+    public int Quantity { get; set; }
 
 }

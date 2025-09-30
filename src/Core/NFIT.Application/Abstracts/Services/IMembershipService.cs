@@ -13,4 +13,6 @@ public interface IMembershipService
     // Admin: istənilən istifadəçinin membership-i (aktiv yoxdursa ən son)
     Task<BaseResponse<MembershipGetDto>> GetUsersMembershipAsync(string userId);
     Task<BaseResponse<string>> DeactivateUserMembershipAsync(string userId);
+    Task<bool> HasActiveMembershipForGymAsync(string userId, Guid gymId);
+    Task<BaseResponse<Guid>> CreateFromDeliveredOrderAsync(MembershipCreateFromOrderDto dto);
 }

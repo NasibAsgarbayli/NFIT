@@ -20,5 +20,6 @@ public class Order:BaseEntity
     public Guid? SubscriptionPlanId { get; set; }        // alına bilən plan
     public SubscriptionPlan? SubscriptionPlan { get; set; }
 
-
+    public Guid? ConsumedByMembershipId { get; set; }
+    public DateTime? ConsumedForMembershipAt { get; set; }
 }

@@ -13,7 +13,7 @@ namespace NFIT.WebApi.Controllers
     public class FavouritesController : ControllerBase
     {
         private readonly IFavouriteService _service;
-        public FavouritesController(FavouriteService service)
+        public FavouritesController(IFavouriteService service)
         {
             _service = service;
         }

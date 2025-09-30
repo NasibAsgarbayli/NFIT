@@ -59,7 +59,7 @@ namespace NFIT.WebApi.Controllers
             return StatusCode((int)r.StatusCode, r);
         }
 
-        [HttpGet("{getbyid:guid}")]
+        [HttpGet("{id:guid}")]
         [Authorize]
         [ProducesResponseType(typeof(BaseResponse<SubscriptionPlanGetDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<SubscriptionPlanGetDto>), StatusCodes.Status404NotFound)]

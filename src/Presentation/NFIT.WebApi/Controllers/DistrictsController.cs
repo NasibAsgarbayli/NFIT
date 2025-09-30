@@ -85,7 +85,17 @@ namespace NFIT.WebApi.Controllers
             var r = await _service.DeactivateDistrictAsync(id);
             return StatusCode((int)r.StatusCode, r);
         }
-
+        /// <summary>Rayonu aktiv et</summary>
+        //[Authorize(Policy = Permissions.District.Activate)]
+        [HttpPost("{id:guid}/activate")]
+        [Authorize(Policy = Permissions.District.Activate)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> Activate(Guid id)
+        {
+            var r = await _service.ActivateDistrictAsync(id);
+            return StatusCode((int)r.StatusCode, r);
+        }
         // ==================== DELETE ====================
 
         /// <summary>Rayonu sil (soft delete + deaktivasiya)</summary>

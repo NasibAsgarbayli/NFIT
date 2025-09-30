@@ -64,7 +64,8 @@ public class GymService:IGymService
             !g.IsDeleted &&
             g.DistrictId == dto.DistrictId &&
             g.Name != null &&
-            string.Equals(g.Name.Trim(), name, StringComparison.InvariantCultureIgnoreCase));
+            g.Name.Trim().ToUpper() == name.ToUpper()
+        );
         if (nameExists)
             return new BaseResponse<Guid>("Gym with same name already exists in this district", Guid.Empty, HttpStatusCode.Conflict);
 
@@ -174,11 +175,11 @@ public class GymService:IGymService
 
         // unique name per district (ignore self)
         var nameExists = await _context.Gyms.AnyAsync(g =>
-            !g.IsDeleted &&
-            g.Id != dto.Id &&
-            g.DistrictId == dto.DistrictId &&
-            g.Name != null &&
-            g.Name.ToLower() == dto.Name.ToLower());
+          !g.IsDeleted &&
+          g.Id != dto.Id &&
+          g.DistrictId == dto.DistrictId &&
+          g.Name != null &&
+          g.Name.Trim() == dto.Name.Trim());
         if (nameExists)
             return new BaseResponse<string>("Gym with same name already exists in this district", HttpStatusCode.Conflict);
 
@@ -349,7 +350,6 @@ public class GymService:IGymService
             .Where(g => !g.IsDeleted)
             .OrderByDescending(g => g.IsPremium)
             .ThenBy(g => g.Name);
-
         var list = await query
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
@@ -362,8 +362,19 @@ public class GymService:IGymService
                 IsPremium = g.IsPremium,
                 IsActive = g.IsActive,
                 Rating = g.Rating,
+
                 CategoryCount = g.GymCategories.Count(gc => !gc.IsDeleted && !gc.Category.IsDeleted),
-                SubscriptionCount = g.AvailableSubscriptions.Count
+                SubscriptionCount = g.AvailableSubscriptions.Count,
+
+                CategoryNames = g.GymCategories
+                    .Where(gc => !gc.IsDeleted && !gc.Category.IsDeleted)
+                    .Select(gc => gc.Category.Name)
+                    .ToList(),
+
+                SubscriptionNames = g.AvailableSubscriptions
+                    .Where(sp => !sp.IsDeleted)
+                    .Select(sp => sp.Name)
+                    .ToList()
             })
             .ToListAsync();
 
@@ -377,29 +388,28 @@ public class GymService:IGymService
         if (image == null || image.Length == 0)
             return new BaseResponse<string>("Image is required", HttpStatusCode.BadRequest);
 
-        var gym = await _context.Gyms
-            .Include(g => g.Images)
-            .FirstOrDefaultAsync(g => g.Id == gymId && !g.IsDeleted);
+        // 1) Parent mövcuddurmu? (track etmədən yoxla)
+        var exists = await _context.Gyms
+            .AsNoTracking()
+            .AnyAsync(g => g.Id == gymId && !g.IsDeleted);
 
-        if (gym == null)
+        if (!exists)
             return new BaseResponse<string>("Gym not found", HttpStatusCode.NotFound);
 
-        // Faylı upload et
+        // 2) Yüklə (FileService artıq düzəldilib)
         var url = await _fileService.UploadAsync(image);
 
+        // 3) Birbaşa child əlavə et (parent-i track ETMƏ!)
         var img = new Image
         {
             Id = Guid.NewGuid(),
-            ImageUrl = url,       // səndə "Url" deyədirsə ona uyğunlaşdır
-            GymId = gymId,        // ⚠️ Image entity-də GymId sahəsi olmalıdır
+            GymId = gymId,
+            ImageUrl = url,
             IsDeleted = false,
             CreatedAt = DateTime.UtcNow
         };
 
-        gym.Images ??= new List<Image>();
-        gym.Images.Add(img);
-
-        _context.Gyms.Update(gym);
+        await _context.Images.AddAsync(img);   // <-- yalnız child INSERT
         await _context.SaveChangesAsync();
 
         return new BaseResponse<string>("Image added to gym", HttpStatusCode.Created);
@@ -425,5 +435,85 @@ public class GymService:IGymService
         await _context.SaveChangesAsync();
 
         return new BaseResponse<string>("Image deleted from gym", HttpStatusCode.OK);
+    }
+    public async Task<BaseResponse<string>> AddCategoriesOnlyAsync(Guid gymId, List<Guid> categoryIds)
+    {
+        var ids = (categoryIds ?? new()).Where(id => id != Guid.Empty).Distinct().ToList();
+        if (ids.Count == 0) return new BaseResponse<string>("No categories provided", HttpStatusCode.BadRequest);
+
+        var gym = await _context.Gyms
+            .Include(g => g.GymCategories)
+            .FirstOrDefaultAsync(g => g.Id == gymId && !g.IsDeleted);
+
+        if (gym is null) return new BaseResponse<string>("Gym not found", HttpStatusCode.NotFound);
+
+        // mövcud (living) və soft-deleted join-ları ayır
+        var living = gym.GymCategories?.Where(gc => !gc.IsDeleted).ToList() ?? new();
+        var livingIds = living.Select(gc => gc.CategoryId).ToHashSet();
+
+        var softDeleted = gym.GymCategories?.Where(gc => gc.IsDeleted).ToList() ?? new();
+        var softDeletedMap = softDeleted.ToDictionary(x => x.CategoryId, x => x);
+
+        // DB-də həqiqətən mövcud və aktiv kateqoriyaları yoxla
+        var validIds = await _context.Categories
+            .Where(c => ids.Contains(c.Id) && !c.IsDeleted)
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        int restored = 0, added = 0, skipped = 0, notFound = ids.Count - validIds.Count;
+
+        foreach (var cid in validIds)
+        {
+            if (livingIds.Contains(cid)) { skipped++; continue; }
+
+            if (softDeletedMap.TryGetValue(cid, out var gc))
+            {
+                gc.IsDeleted = false;
+                gc.UpdatedAt = DateTime.UtcNow;
+                restored++;
+            }
+            else
+            {
+                gym.GymCategories!.Add(new GymCategory { GymId = gym.Id, CategoryId = cid });
+                added++;
+            }
+        }
+
+        // parent-i Update ETMƏ — yalnız SaveChanges kifayətdir
+        await _context.SaveChangesAsync();
+
+        var msg = $"Categories => added:{added}, restored:{restored}, skipped_existing:{skipped}, not_found:{notFound}";
+        return new BaseResponse<string>(msg, HttpStatusCode.OK);
+    }
+
+    public async Task<BaseResponse<string>> AddSubscriptionsOnlyAsync(Guid gymId, List<Guid> subscriptionIds)
+    {
+        var ids = (subscriptionIds ?? new()).Where(id => id != Guid.Empty).Distinct().ToList();
+        if (ids.Count == 0) return new BaseResponse<string>("No subscriptions provided", HttpStatusCode.BadRequest);
+
+        var gym = await _context.Gyms
+            .Include(g => g.AvailableSubscriptions)
+            .FirstOrDefaultAsync(g => g.Id == gymId && !g.IsDeleted);
+
+        if (gym is null) return new BaseResponse<string>("Gym not found", HttpStatusCode.NotFound);
+
+        var existing = gym.AvailableSubscriptions?.Select(s => s.Id).ToHashSet() ?? new();
+
+        // yalnız mövcud və aktiv planlar
+        var toAdd = await _context.SubscriptionPlans
+            .Where(s => ids.Contains(s.Id) && !s.IsDeleted && !existing.Contains(s.Id))
+            .ToListAsync();
+
+        int added = toAdd.Count;
+        int skipped = ids.Count - added; // ya mövcud idi, ya tapılmadı/isDeleted
+
+        foreach (var sp in toAdd)
+            gym.AvailableSubscriptions!.Add(sp);
+
+        // parent-i Update ETMƏ!
+        await _context.SaveChangesAsync();
+
+        var msg = $"Subscriptions => added:{added}, skipped_existing_or_notfound:{skipped}";
+        return new BaseResponse<string>(msg, HttpStatusCode.OK);
     }
 }

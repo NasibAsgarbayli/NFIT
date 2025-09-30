@@ -33,22 +33,44 @@ public class GymQrCodeService:IGymQrCodeService
         }, HttpStatusCode.OK);
     }
 
+    // =========== CREATE OR ROTATE (UPDATE-PRIORITY) ===========
     public async Task<BaseResponse<GymQrGetDto>> GenerateOrRotateAsync(Guid gymId)
     {
-        var exists = await _context.Gyms.AnyAsync(g => g.Id == gymId && !g.IsDeleted);
-        if (!exists) return new BaseResponse<GymQrGetDto>("Gym not found", null, HttpStatusCode.NotFound);
+        // 0) gym var?
+        var gymExists = await _context.Gyms.AnyAsync(g => g.Id == gymId && !g.IsDeleted);
+        if (!gymExists)
+            return new BaseResponse<GymQrGetDto>("Gym not found", null, HttpStatusCode.NotFound);
 
-        // deactivate previous actives
-        var olds = await _context.GymQRCodes
-            .Where(q => q.GymId == gymId && q.IsActive && !q.IsDeleted)
-            .ToListAsync();
-        foreach (var q in olds) { q.IsActive = false; q.UpdatedAt = DateTime.UtcNow; }
+        // 1) URL-safe 32-byte token
+        var bytes = RandomNumberGenerator.GetBytes(32);
+        var token = Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(bytes);
 
-        // secure random token
-        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        // 2) tək sətir modeli: varsa UPDATE, yoxdursa ADD
+        var qr = await _context.GymQRCodes.FirstOrDefaultAsync(q => q.GymId == gymId);
 
-        var qr = new GymQRCode { GymId = gymId, QRCodeData = token, IsActive = true };
-        await _context.GymQRCodes.AddAsync(qr);
+        if (qr is null)
+        {
+            qr = new GymQRCode
+            {
+                GymId = gymId,
+                QRCodeData = token,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            await _context.GymQRCodes.AddAsync(qr);
+        }
+        else
+        {
+            qr.QRCodeData = token;
+            qr.IsActive = true;
+            // One-time istifadə edirdinsə, rotasiyada təzələyirik:
+            qr.UsedAt = null;
+            // qr.ExpiresAt = DateTime.UtcNow.AddMinutes(5); // istəsən TTL
+            qr.UpdatedAt = DateTime.UtcNow;
+
+            _context.GymQRCodes.Update(qr);
+        }
+
         await _context.SaveChangesAsync();
 
         return new BaseResponse<GymQrGetDto>("QR rotated", new GymQrGetDto
@@ -59,17 +81,21 @@ public class GymQrCodeService:IGymQrCodeService
         }, HttpStatusCode.Created);
     }
 
+    // ================== DEACTIVATE ==================
     public async Task<BaseResponse<string>> DeactivateAsync(Guid gymId)
     {
-        var actives = await _context.GymQRCodes
-            .Where(q => q.GymId == gymId && q.IsActive && !q.IsDeleted)
-            .ToListAsync();
+        var qr = await _context.GymQRCodes
+            .FirstOrDefaultAsync(q => q.GymId == gymId && !q.IsDeleted);
 
-        if (actives.Count == 0)
+        if (qr is null || !qr.IsActive)
             return new BaseResponse<string>("No active QR", HttpStatusCode.NotFound);
 
-        foreach (var q in actives) { q.IsActive = false; q.UpdatedAt = DateTime.UtcNow; }
+        qr.IsActive = false;
+        qr.UpdatedAt = DateTime.UtcNow;
+
+        _context.GymQRCodes.Update(qr);
         await _context.SaveChangesAsync();
+
         return new BaseResponse<string>("QR deactivated", HttpStatusCode.OK);
     }
 }

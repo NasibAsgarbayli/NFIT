@@ -39,5 +39,10 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
                .WithOne(os => os.Order)
                .HasForeignKey(os => os.OrderId)
                .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(o => o.SubscriptionPlan)
+       .WithMany()                        // əgər SubscriptionPlan.Orders yoxdursa
+       .HasForeignKey(o => o.SubscriptionPlanId) // Guid? (nullable)
+       .OnDelete(DeleteBehavior.Restrict);
     }
 }

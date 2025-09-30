@@ -55,5 +55,8 @@ public class AppUserConfiguration:IEntityTypeConfiguration<AppUser>
                .HasForeignKey(c => c.UserId)
                .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasMany(u => u.Trainers)
+            .WithOne(t => t.User)
+            .HasForeignKey(t => t.UserId);
     }
 }

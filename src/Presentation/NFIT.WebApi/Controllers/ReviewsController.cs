@@ -17,7 +17,7 @@ namespace NFIT.WebApi.Controllers
             _service = service;
         }
         // ---------- Create ----------
-        [Authorize]
+        [Authorize(Policy =Permissions.Review.Create)]
         [HttpPost]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(BaseResponse<Guid>), StatusCodes.Status400BadRequest)]
@@ -30,7 +30,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         // ---------- Update (only owner) ----------
-        [Authorize]
+        [Authorize(Policy = Permissions.Review.Update)]
         [HttpPut("{id:guid}")]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status401Unauthorized)]
@@ -44,7 +44,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         // ---------- Delete by Id (owner; admin/mod üçün ayrıca policy varsa onu istifadə et) ----------
-        [Authorize]
+        [Authorize(Policy = Permissions.Review.Delete)]
         [HttpDelete("{id:guid}")]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status401Unauthorized)]
@@ -60,6 +60,7 @@ namespace NFIT.WebApi.Controllers
         // NOTE: Permissions.Review.Approve policy-ni Program.cs-də əlavə edəcəksən.
        
         [HttpPost("{id:guid}/approve")]
+        [Authorize(Policy = Permissions.Review.Approve)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
@@ -71,6 +72,7 @@ namespace NFIT.WebApi.Controllers
 
         // ---------- Public: Approved reviews (filter + pagination) ----------
         [HttpGet("ApprovedReviews")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<ReviewGetDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<ReviewGetDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetApproved([FromQuery] ReviewQueryDto query)
@@ -81,6 +83,7 @@ namespace NFIT.WebApi.Controllers
 
         // ---------- Public: Average rating (only approved) ----------
         [HttpGet("average-rating")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<decimal>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<decimal>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(BaseResponse<decimal>), StatusCodes.Status404NotFound)]
@@ -103,7 +106,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         // ---------- Has current user already reviewed this target? ----------
-        [Authorize]
+        [Authorize(Policy = Permissions.Review.HasReviewed)]
         [HttpGet("has-reviewed")]
         [ProducesResponseType(typeof(BaseResponse<bool>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<bool>), StatusCodes.Status400BadRequest)]

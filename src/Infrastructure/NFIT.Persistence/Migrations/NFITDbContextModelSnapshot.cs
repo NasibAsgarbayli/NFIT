@@ -623,6 +623,9 @@ namespace NFIT.Persistence.Migrations
                     b.Property<Guid?>("CreatedUser")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<Guid>("GymId")
                         .HasColumnType("uniqueidentifier");
 
@@ -632,6 +635,9 @@ namespace NFIT.Persistence.Migrations
                         .HasDefaultValue(true);
 
                     b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsOneTime")
                         .HasColumnType("bit");
 
                     b.Property<string>("QRCodeData")
@@ -644,6 +650,9 @@ namespace NFIT.Persistence.Migrations
 
                     b.Property<Guid?>("UpdatedUser")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("datetime2");
 
                     b.HasKey("Id");
 
@@ -682,6 +691,9 @@ namespace NFIT.Persistence.Migrations
                     b.Property<Guid?>("SupplementId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("TrainerId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
@@ -693,6 +705,8 @@ namespace NFIT.Persistence.Migrations
                     b.HasIndex("GymId");
 
                     b.HasIndex("SupplementId");
+
+                    b.HasIndex("TrainerId");
 
                     b.ToTable("Images", (string)null);
                 });
@@ -711,9 +725,6 @@ namespace NFIT.Persistence.Migrations
 
                     b.Property<DateTime>("EndDate")
                         .HasColumnType("datetime2");
-
-                    b.Property<Guid>("GymId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
@@ -739,8 +750,6 @@ namespace NFIT.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("GymId");
-
                     b.HasIndex("SubscriptionPlanId");
 
                     b.HasIndex("UserId");
@@ -753,6 +762,12 @@ namespace NFIT.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ConsumedByMembershipId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ConsumedForMembershipAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -780,6 +795,9 @@ namespace NFIT.Persistence.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<Guid?>("SubscriptionPlanId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<decimal?>("TotalPrice")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -795,6 +813,8 @@ namespace NFIT.Persistence.Migrations
                         .HasColumnType("nvarchar(450)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SubscriptionPlanId");
 
                     b.HasIndex("UserId");
 
@@ -818,6 +838,9 @@ namespace NFIT.Persistence.Migrations
 
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
 
                     b.Property<Guid>("SupplementId")
                         .HasColumnType("uniqueidentifier");
@@ -1051,11 +1074,6 @@ namespace NFIT.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<string>("ProfilePictureUrl")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
-
                     b.Property<decimal>("Rating")
                         .HasColumnType("decimal(3,2)");
 
@@ -1072,11 +1090,17 @@ namespace NFIT.Persistence.Migrations
                     b.Property<Guid?>("UpdatedUser")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
                     b.Property<string>("YoutubeUrl")
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("Trainers", (string)null);
                 });
@@ -1569,19 +1593,20 @@ namespace NFIT.Persistence.Migrations
                         .HasForeignKey("SupplementId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("NFIT.Domain.Entities.Trainer", "Trainer")
+                        .WithMany("Images")
+                        .HasForeignKey("TrainerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Gym");
 
                     b.Navigation("Supplement");
+
+                    b.Navigation("Trainer");
                 });
 
             modelBuilder.Entity("NFIT.Domain.Entities.Membership", b =>
                 {
-                    b.HasOne("NFIT.Domain.Entities.Gym", "GYM")
-                        .WithMany()
-                        .HasForeignKey("GymId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("NFIT.Domain.Entities.SubscriptionPlan", "SubscriptionPlan")
                         .WithMany()
                         .HasForeignKey("SubscriptionPlanId")
@@ -1594,8 +1619,6 @@ namespace NFIT.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("GYM");
-
                     b.Navigation("SubscriptionPlan");
 
                     b.Navigation("User");
@@ -1603,11 +1626,18 @@ namespace NFIT.Persistence.Migrations
 
             modelBuilder.Entity("NFIT.Domain.Entities.Order", b =>
                 {
+                    b.HasOne("NFIT.Domain.Entities.SubscriptionPlan", "SubscriptionPlan")
+                        .WithMany()
+                        .HasForeignKey("SubscriptionPlanId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("NFIT.Domain.Entities.AppUser", "User")
                         .WithMany("Orders")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("SubscriptionPlan");
 
                     b.Navigation("User");
                 });
@@ -1666,6 +1696,17 @@ namespace NFIT.Persistence.Migrations
                     b.Navigation("Supplement");
 
                     b.Navigation("Trainer");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("NFIT.Domain.Entities.Trainer", b =>
+                {
+                    b.HasOne("NFIT.Domain.Entities.AppUser", "User")
+                        .WithMany("Trainers")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.Navigation("User");
                 });
@@ -1739,6 +1780,8 @@ namespace NFIT.Persistence.Migrations
                     b.Navigation("Orders");
 
                     b.Navigation("Reviews");
+
+                    b.Navigation("Trainers");
                 });
 
             modelBuilder.Entity("NFIT.Domain.Entities.District", b =>
@@ -1785,6 +1828,8 @@ namespace NFIT.Persistence.Migrations
             modelBuilder.Entity("NFIT.Domain.Entities.Trainer", b =>
                 {
                     b.Navigation("Favourites");
+
+                    b.Navigation("Images");
 
                     b.Navigation("Reviews");
 

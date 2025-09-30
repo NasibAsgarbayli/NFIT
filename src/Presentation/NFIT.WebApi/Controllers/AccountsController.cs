@@ -12,7 +12,7 @@ namespace NFIT.WebApi.Controllers
     [ApiController]
     public class AccountsController : ControllerBase
     {
-        private IUserService _userService { get; }
+        private readonly IUserService _userService;
         public AccountsController(IUserService userService)
         {
             _userService = userService;

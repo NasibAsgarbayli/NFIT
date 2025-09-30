@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.FavouriteDtos;
@@ -12,11 +13,12 @@ namespace NFIT.WebApi.Controllers
     public class FavouritesController : ControllerBase
     {
         private readonly IFavouriteService _service;
-        public FavouritesController(FavouriteService service)
+        public FavouritesController(IFavouriteService service)
         {
             _service = service;
         }
         [HttpPost]
+        [Authorize(Policy = Permissions.Favourite.Create)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> Create([FromBody] FavouriteAddDto dto)
@@ -27,6 +29,7 @@ namespace NFIT.WebApi.Controllers
 
         // ---- Delete specific favourite ----
         [HttpDelete("{favouriteId:guid}")]
+        [Authorize(Policy = Permissions.Favourite.Delete)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> DeleteById(Guid favouriteId)
@@ -37,6 +40,7 @@ namespace NFIT.WebApi.Controllers
 
         // ---- Get all my favourites ----
         [HttpGet("MyAllFav")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<FavouriteListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<FavouriteListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetAllMy()
@@ -48,6 +52,7 @@ namespace NFIT.WebApi.Controllers
 
         // ---- Only my favourite gyms ----
         [HttpGet("FavGyms")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<FavouriteListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<FavouriteListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetGyms()
@@ -58,6 +63,7 @@ namespace NFIT.WebApi.Controllers
 
         // ---- Only my favourite trainers ----
         [HttpGet("FavTrainers")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<FavouriteListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<FavouriteListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetTrainers()
@@ -68,6 +74,7 @@ namespace NFIT.WebApi.Controllers
 
         // ---- Only my favourite supplements ----
         [HttpGet("FavSupplements")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<List<FavouriteListItemDto>>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<List<FavouriteListItemDto>>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetSupplements()
@@ -78,6 +85,7 @@ namespace NFIT.WebApi.Controllers
 
         // ---- Clear all favourites of current user ----
         [HttpDelete("ClearAllFavoruites")]
+        [Authorize]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Clear()

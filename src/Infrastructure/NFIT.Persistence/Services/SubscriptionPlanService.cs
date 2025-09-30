@@ -4,6 +4,7 @@ using NFIT.Application.Abstracts.Services;
 using NFIT.Application.DTOs.SubscriptionPlanDtos;
 using NFIT.Application.Shared;
 using NFIT.Domain.Entities;
+using NFIT.Domain.Enums;
 using NFIT.Persistence.Contexts;
 
 namespace NFIT.Persistence.Services;
@@ -16,12 +17,34 @@ public class SubscriptionPlanService : ISubscriptionPlanService
     // CREATE
     public async Task<BaseResponse<Guid>> CreateAsync(SubscriptionPlanCreateDto dto)
     {
-        // Ad + Type + BillingCycle üzrə unikallıq (istəsən yalnız ada görə də edə bilərsən)
+        if (dto == null)
+            return new BaseResponse<Guid>("Body is required", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<Guid>("Name is required", Guid.Empty, HttpStatusCode.BadRequest);
+
+        var name = dto.Name.Trim();
+        if (name.Length < 2 || name.Length > 120)
+            return new BaseResponse<Guid>("Name length must be between 2 and 120", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // ✅ Enum yoxlamaları
+        if (!Enum.IsDefined(typeof(SubscriptionType), dto.Type))
+            return new BaseResponse<Guid>("Invalid plan type", Guid.Empty, HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(BillingCycle), dto.BillingCycle))
+            return new BaseResponse<Guid>("Invalid billing cycle", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // ✅ Qiymət guard
+        if (dto.Price < 0)
+            return new BaseResponse<Guid>("Price cannot be negative", Guid.Empty, HttpStatusCode.BadRequest);
+
+        // ✅ Unikallıq (Name + Type + BillingCycle)
         var exists = await _context.SubscriptionPlans.AnyAsync(sp =>
             !sp.IsDeleted &&
-            sp.Name.ToLower() == dto.Name.Trim().ToLower() &&
             sp.Type == dto.Type &&
-            sp.BillingCycle == dto.BillingCycle);
+            sp.BillingCycle == dto.BillingCycle &&
+            sp.Name != null &&
+            sp.Name.Trim().ToLower() == name.ToLower());
 
         if (exists)
             return new BaseResponse<Guid>("A subscription plan with same name/type/cycle already exists",
@@ -30,7 +53,7 @@ public class SubscriptionPlanService : ISubscriptionPlanService
         var entity = new SubscriptionPlan
         {
             Id = Guid.NewGuid(),
-            Name = dto.Name.Trim(),
+            Name = name,
             Description = dto.Description?.Trim(),
             Type = dto.Type,
             BillingCycle = dto.BillingCycle,
@@ -46,6 +69,12 @@ public class SubscriptionPlanService : ISubscriptionPlanService
     // UPDATE
     public async Task<BaseResponse<string>> UpdateAsync(SubscriptionPlanUpdateDto dto)
     {
+        if (dto == null)
+            return new BaseResponse<string>("Body is required", HttpStatusCode.BadRequest);
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<string>("Name is required", HttpStatusCode.BadRequest);
+
         var sp = await _context.SubscriptionPlans
             .Include(x => x.Gyms)
             .FirstOrDefaultAsync(x => x.Id == dto.Id && !x.IsDeleted);
@@ -53,18 +82,35 @@ public class SubscriptionPlanService : ISubscriptionPlanService
         if (sp is null)
             return new BaseResponse<string>("Subscription plan not found", HttpStatusCode.NotFound);
 
+        var name = dto.Name.Trim();
+        if (name.Length < 2 || name.Length > 120)
+            return new BaseResponse<string>("Name length must be between 2 and 120", HttpStatusCode.BadRequest);
+
+        // ✅ Enum yoxlamaları
+        if (!Enum.IsDefined(typeof(SubscriptionType), dto.Type))
+            return new BaseResponse<string>("Invalid plan type", HttpStatusCode.BadRequest);
+
+        if (!Enum.IsDefined(typeof(BillingCycle), dto.BillingCycle))
+            return new BaseResponse<string>("Invalid billing cycle", HttpStatusCode.BadRequest);
+
+        // ✅ Qiymət guard
+        if (dto.Price < 0)
+            return new BaseResponse<string>("Price cannot be negative", HttpStatusCode.BadRequest);
+
+        // ✅ Unikallıq (özündən başqa)
         var exists = await _context.SubscriptionPlans.AnyAsync(x =>
             !x.IsDeleted &&
             x.Id != dto.Id &&
-            x.Name.ToLower() == dto.Name.Trim().ToLower() &&
             x.Type == dto.Type &&
-            x.BillingCycle == dto.BillingCycle);
+            x.BillingCycle == dto.BillingCycle &&
+            x.Name != null &&
+            x.Name.Trim().ToLower() == name.ToLower());
 
         if (exists)
             return new BaseResponse<string>("A subscription plan with same name/type/cycle already exists",
                                             HttpStatusCode.Conflict);
 
-        sp.Name = dto.Name.Trim();
+        sp.Name = name;
         sp.Description = dto.Description?.Trim();
         sp.Type = dto.Type;
         sp.BillingCycle = dto.BillingCycle;
@@ -76,7 +122,6 @@ public class SubscriptionPlanService : ISubscriptionPlanService
 
         return new BaseResponse<string>("Subscription plan updated", HttpStatusCode.OK);
     }
-
     // SOFT DELETE
     public async Task<BaseResponse<string>> DeleteAsync(Guid id)
     {

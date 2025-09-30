@@ -41,6 +41,7 @@ namespace NFIT.WebApi.Controllers
         }
 
         [HttpPost]
+        [Authorize()]
         [ProducesResponseType(typeof(BaseResponse<TokenResponse>), (int)HttpStatusCode.OK)]
         [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.NotFound)]
         [ProducesResponseType(typeof(BaseResponse<string>), (int)HttpStatusCode.BadRequest)]

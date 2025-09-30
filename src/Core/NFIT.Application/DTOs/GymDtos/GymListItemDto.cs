@@ -12,5 +12,9 @@ public class GymListItemDto
     public decimal Rating { get; set; }
     public int CategoryCount { get; set; }
     public int SubscriptionCount { get; set; }
+    public List<string> CategoryNames { get; set; } = new();
+    public List<string> SubscriptionNames { get; set; } = new();
+
+
 
 }

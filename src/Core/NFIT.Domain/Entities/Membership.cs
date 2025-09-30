@@ -9,8 +9,7 @@ public class Membership:BaseEntity
     public AppUser User { get; set; } = null!;
     public string UserId { get; set; }
 
-    public Gym GYM { get; set; } = null!;
-    public Guid GymId { get; set; }
+  
 
     public SubscriptionPlan SubscriptionPlan { get; set; } = null!;
     public Guid SubscriptionPlanId { get; set; }

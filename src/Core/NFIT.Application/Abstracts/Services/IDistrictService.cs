@@ -11,5 +11,6 @@ public interface IDistrictService
     Task<BaseResponse<string>> DeactivateDistrictAsync(Guid id);     // IsActive=false
     Task<BaseResponse<int>> GetGymCountByDistrictAsync(Guid districtId, bool onlyActiveGyms = true);
     Task<BaseResponse<List<DistrictGetDto>>> GetAllAsync(); //only active
+    Task<BaseResponse<string>> ActivateDistrictAsync(Guid id);
 
 }

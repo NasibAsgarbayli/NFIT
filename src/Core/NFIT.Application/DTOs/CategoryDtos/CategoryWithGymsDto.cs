@@ -9,4 +9,5 @@ public class CategoryWithGymsDto
     public string? Description { get; set; }
     public int GymCount { get; set; }
     public List<GymListItemDto> Gyms { get; set; } = new();
+  
 }

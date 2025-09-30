@@ -20,17 +20,23 @@ public class CategoryService:ICategoryService
 
     public async Task<BaseResponse<Guid>> CreateAsync(CategoryCreateDto dto)
     {
-        // (opsional) eyni adı təkrarlamamaq üçün sadə yoxlama
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<Guid>("Name is required", Guid.Empty, HttpStatusCode.BadRequest);
+
+        var name = dto.Name.Trim();
+        if (name.Length > 100)
+            return new BaseResponse<Guid>("Name is too long (max 100)", Guid.Empty, HttpStatusCode.BadRequest);
+
         var exists = await _context.Categories
-            .AnyAsync(c => !c.IsDeleted && c.Name.ToLower() == dto.Name.ToLower());
+            .AnyAsync(c => !c.IsDeleted && c.Name.ToLower() == name.ToLower());
         if (exists)
             return new BaseResponse<Guid>("Category with this name already exists", Guid.Empty, HttpStatusCode.Conflict);
 
         var entity = new Category
         {
             Id = Guid.NewGuid(),
-            Name = dto.Name.Trim(),
-            Description = dto.Description?.Trim()
+            Name = name,
+            Description = (dto.Description ?? "").Trim()
         };
 
         await _context.Categories.AddAsync(entity);
@@ -43,20 +49,23 @@ public class CategoryService:ICategoryService
     {
         var category = await _context.Categories
             .FirstOrDefaultAsync(c => c.Id == dto.Id && !c.IsDeleted);
-
         if (category is null)
             return new BaseResponse<string>("Category not found", HttpStatusCode.NotFound);
 
-        // (opsional) ad unikallığı (özündən başqa)
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return new BaseResponse<string>("Name is required", HttpStatusCode.BadRequest);
+
+        var name = dto.Name.Trim();
+        if (name.Length > 100)
+            return new BaseResponse<string>("Name is too long (max 100)", HttpStatusCode.BadRequest);
+
         var exists = await _context.Categories
-            .AnyAsync(c => !c.IsDeleted &&
-                           c.Id != dto.Id &&
-                           c.Name.ToLower() == dto.Name.ToLower());
+            .AnyAsync(c => !c.IsDeleted && c.Id != dto.Id && c.Name.ToLower() == name.ToLower());
         if (exists)
             return new BaseResponse<string>("Category with this name already exists", HttpStatusCode.Conflict);
 
-        category.Name = dto.Name.Trim();
-        category.Description = dto.Description?.Trim();
+        category.Name = name;
+        category.Description = (dto.Description ?? "").Trim();
         category.UpdatedAt = DateTime.UtcNow;
 
         _context.Categories.Update(category);
@@ -64,7 +73,6 @@ public class CategoryService:ICategoryService
 
         return new BaseResponse<string>("Category updated", HttpStatusCode.OK);
     }
-
     public async Task<BaseResponse<string>> DeleteAsync(Guid id)
     {
         var category = await _context.Categories
@@ -156,21 +164,26 @@ public class CategoryService:ICategoryService
                 .ThenInclude(g => g.District)
             .Include(c => c.Gyms)
                 .ThenInclude(g => g.GymCategories)
+                    .ThenInclude(gc => gc.Category) // <-- KATEQORIYA adlarını yığmaq üçün
             .Include(c => c.Gyms)
                 .ThenInclude(g => g.AvailableSubscriptions)
+            .AsNoTracking()
             .FirstOrDefaultAsync(c => c.Id == id && !c.IsDeleted);
 
         if (category is null)
             return new BaseResponse<CategoryWithGymsDto>("Category not found", null, HttpStatusCode.NotFound);
 
+        var activeGyms = (category.Gyms ?? new List<Domain.Entities.Gym>())
+            .Where(g => !g.IsDeleted)
+            .ToList();
+
         var dto = new CategoryWithGymsDto
         {
             Id = category.Id,
-            Name = category.Name,
+            Name = category.Name,            // baxılan kateqoriya adı
             Description = category.Description,
-            GymCount = category.Gyms?.Count(g => !g.IsDeleted) ?? 0,
-            Gyms = (category.Gyms ?? new List<Domain.Entities.Gym>())
-                .Where(g => !g.IsDeleted)
+            GymCount = activeGyms.Count,
+            Gyms = activeGyms
                 .OrderByDescending(g => g.IsPremium)
                 .ThenBy(g => g.Name)
                 .Select(g => new GymListItemDto
@@ -182,13 +195,23 @@ public class CategoryService:ICategoryService
                     IsPremium = g.IsPremium,
                     IsActive = g.IsActive,
                     Rating = g.Rating,
-                    CategoryCount = g.GymCategories?.Count ?? 0,
-                    SubscriptionCount = g.AvailableSubscriptions?.Count ?? 0
+                    CategoryCount = g.GymCategories?.Count(gc => !gc.IsDeleted) ?? 0,
+                    SubscriptionCount = g.AvailableSubscriptions?.Count(a => !a.IsDeleted) ?? 0,
+                    CategoryNames = (g.GymCategories ?? new List<Domain.Entities.GymCategory>())
+                        .Where(gc => !gc.IsDeleted && gc.Category != null && !gc.Category.IsDeleted)
+                        .Select(gc => gc.Category!.Name)
+                        .Distinct()
+                        .ToList()
                 })
                 .ToList()
         };
 
-        return new BaseResponse<CategoryWithGymsDto>("Category with gyms retrieved", dto, HttpStatusCode.OK);
+        // BOŞ OLAN HAL: data boş gəlir + mesajda açıq yazılır
+        var message = dto.GymCount == 0
+            ? "Bu kateqoriyaya aid gym yoxdur"
+            : "Category with gyms retrieved";
+
+        return new BaseResponse<CategoryWithGymsDto>(message, dto, HttpStatusCode.OK);
     }
 
     // 🔽 3) Category sayını gətir

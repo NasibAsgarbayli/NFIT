@@ -31,8 +31,6 @@ public class TrainerConfiguration : IEntityTypeConfiguration<Trainer>
                 v => string.Join(',', v),
                 v => v.Split(',', StringSplitOptions.RemoveEmptyEntries));
 
-        builder.Property(t => t.ProfilePictureUrl)
-            .HasMaxLength(300);
 
         builder.Property(t => t.InstagramUrl)
             .HasMaxLength(300);
@@ -62,6 +60,16 @@ public class TrainerConfiguration : IEntityTypeConfiguration<Trainer>
             .WithOne(r => r.Trainer)
             .HasForeignKey(r => r.TrainerId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasMany(t => t.Images)
+                .WithOne(i => i.Trainer)
+                .HasForeignKey(i => i.TrainerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(t => t.User)
+                .WithMany(u => u.Trainers)
+                .HasForeignKey(p => p.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
 
     }
 }

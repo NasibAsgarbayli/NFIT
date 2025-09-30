@@ -14,6 +14,7 @@ public class NFITDbContext:IdentityDbContext<AppUser>
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CategoryConfiguration).Assembly);
         base.OnModelCreating(modelBuilder);
+
     }
     public DbSet<Category> Categories { get; set; }
     public DbSet<District> Districts { get; set; }

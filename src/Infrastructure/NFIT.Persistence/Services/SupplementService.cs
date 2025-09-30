@@ -12,10 +12,12 @@ public class SupplementService:ISupplementService
 {
     private readonly NFITDbContext _context;
     private readonly IFileService _fileService;
-    public SupplementService(NFITDbContext context, IFileService fileService)
+    private readonly ICloudinaryService _cloud;
+    public SupplementService(NFITDbContext context, IFileService fileService, ICloudinaryService cloud)
     {
         _context = context;
         _fileService = fileService;
+        _cloud = cloud;
     }
     // CREATE
     public async Task<BaseResponse<Guid>> CreateAsync(SupplementCreateDto dto)
@@ -288,43 +290,55 @@ public class SupplementService:ISupplementService
         if (supplement is null)
             return new BaseResponse<string>("Supplement not found", HttpStatusCode.NotFound);
 
-        var url = await _fileService.UploadAsync(dto.File);
+        // Cloudinary-yə YÜKLƏ
+        var folder = $"NFIT/supplements/{supplementId}";
+        var (url, publicId) = await _cloud.UploadImageAsync(dto.File, folder);
+
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(publicId))
+            return new BaseResponse<string>("Upload failed", HttpStatusCode.BadRequest);
 
         var img = new Image
         {
             Id = Guid.NewGuid(),
             ImageUrl = url,
+            PublicId = publicId,              // <-- vacib
             SupplementId = supplementId,
             IsDeleted = false,
             CreatedAt = DateTime.UtcNow
         };
 
-        // Supplement-ə toxunmuruq, sadəcə Image insert edirik
         await _context.Images.AddAsync(img);
         await _context.SaveChangesAsync();
 
+        // cavabda URL qaytarırıq
         return new BaseResponse<string>("Image added to supplement", url, HttpStatusCode.Created);
     }
 
     public async Task<BaseResponse<string>> DeleteImageAsync(Guid supplementId, Guid imageId)
     {
         var supplement = await _context.Supplements
-            .Include(s => s.Images)
-            .FirstOrDefaultAsync(s => s.Id == supplementId && !s.IsDeleted);
+         .Include(s => s.Images)
+         .FirstOrDefaultAsync(s => s.Id == supplementId && !s.IsDeleted);
 
         if (supplement is null)
             return new BaseResponse<string>("Supplement not found", HttpStatusCode.NotFound);
 
-        var image = supplement.Images?.FirstOrDefault(i => i.Id == imageId && !i.IsDeleted);
+        var image = supplement.Images?.FirstOrDefault(i => i.Id == imageId);
         if (image is null)
             return new BaseResponse<string>("Image not found", HttpStatusCode.NotFound);
 
-        image.IsDeleted = true;
-        image.UpdatedAt = DateTime.UtcNow;
+        // 1) Əvvəl Cloudinary-dən sil (uğursuzsa DB-dən silməyək)
+        var cloudDeleted = true;
+        if (!string.IsNullOrWhiteSpace(image.PublicId))
+            cloudDeleted = await _cloud.DeleteImageAsync(image.PublicId); // yalnız "ok" uğurdur deyə ayarlamışdıq
 
-        _context.Images.Update(image); // DbSet<Image> olmalıdır
+        if (!cloudDeleted)
+            return new BaseResponse<string>("Failed to delete from Cloudinary", HttpStatusCode.BadRequest);
+
+        // 2) DB-dən hard delete
+        _context.Images.Remove(image);
         await _context.SaveChangesAsync();
 
-        return new BaseResponse<string>("Image deleted from supplement", HttpStatusCode.OK);
+        return new BaseResponse<string>("Image hard-deleted", HttpStatusCode.OK);
     }
 }

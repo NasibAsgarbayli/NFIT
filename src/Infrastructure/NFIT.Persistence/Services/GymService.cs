@@ -12,14 +12,14 @@ namespace NFIT.Persistence.Services;
 public class GymService:IGymService
 {
     private readonly NFITDbContext _context;
-    private readonly IFileService _fileService;
     private readonly IEmailService _emailService;
+    private readonly ICloudinaryService _cloud;
 
-    public GymService(NFITDbContext context, IFileService fileService, IEmailService emailService)
+    public GymService(NFITDbContext context,IEmailService emailService, ICloudinaryService cloud)
     {
         _context = context;
-        _fileService = fileService;
         _emailService = emailService;
+        _cloud = cloud;
     }
 
     // CREATE
@@ -388,53 +388,62 @@ public class GymService:IGymService
         if (image == null || image.Length == 0)
             return new BaseResponse<string>("Image is required", HttpStatusCode.BadRequest);
 
-        // 1) Parent mövcuddurmu? (track etmədən yoxla)
-        var exists = await _context.Gyms
-            .AsNoTracking()
+        // 1) Gym mövcuddur?
+        var exists = await _context.Gyms.AsNoTracking()
             .AnyAsync(g => g.Id == gymId && !g.IsDeleted);
-
         if (!exists)
             return new BaseResponse<string>("Gym not found", HttpStatusCode.NotFound);
 
-        // 2) Yüklə (FileService artıq düzəldilib)
-        var url = await _fileService.UploadAsync(image);
+        // 2) Cloudinary-yə yüklə (qovluq: ecommerce/gyms/{gymId})
+        var folder = $"NFIT/gyms/{gymId}";
+        var (url, publicId) = await _cloud.UploadImageAsync(image, folder);
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(publicId))
+            return new BaseResponse<string>("Upload failed", HttpStatusCode.BadRequest);
 
-        // 3) Birbaşa child əlavə et (parent-i track ETMƏ!)
+        // 3) Child Image insert (parent-i track etmə)
         var img = new Image
         {
             Id = Guid.NewGuid(),
             GymId = gymId,
             ImageUrl = url,
+            PublicId = publicId,            // <-- vacib
             IsDeleted = false,
             CreatedAt = DateTime.UtcNow
         };
 
-        await _context.Images.AddAsync(img);   // <-- yalnız child INSERT
+        await _context.Images.AddAsync(img);
         await _context.SaveChangesAsync();
 
-        return new BaseResponse<string>("Image added to gym", HttpStatusCode.Created);
+        // istəsən cavabda URL qaytarıram
+        return new BaseResponse<string>("Image added to gym", url, HttpStatusCode.Created);
     }
 
     public async Task<BaseResponse<string>> DeleteImageAsync(Guid gymId, Guid imageId)
     {
         var gym = await _context.Gyms
-            .Include(g => g.Images)
-            .FirstOrDefaultAsync(g => g.Id == gymId && !g.IsDeleted);
+     .Include(g => g.Images)
+     .FirstOrDefaultAsync(g => g.Id == gymId && !g.IsDeleted);
 
-        if (gym == null)
+        if (gym is null)
             return new BaseResponse<string>("Gym not found", HttpStatusCode.NotFound);
 
-        var image = gym.Images?.FirstOrDefault(i => i.Id == imageId && !i.IsDeleted);
-        if (image == null)
+        var image = gym.Images?.FirstOrDefault(i => i.Id == imageId);
+        if (image is null)
             return new BaseResponse<string>("Image not found", HttpStatusCode.NotFound);
 
-        image.IsDeleted = true;
-        image.UpdatedAt = DateTime.UtcNow;
+        // 1) Cloudinary-dən sil
+        var cloudDeleted = true;
+        if (!string.IsNullOrWhiteSpace(image.PublicId))
+            cloudDeleted = await _cloud.DeleteImageAsync(image.PublicId);
 
-        _context.Images.Update(image); // varsa DbSet<Image> _context.Images
+        if (!cloudDeleted)
+            return new BaseResponse<string>("Failed to delete from Cloudinary", HttpStatusCode.BadRequest);
+
+        // 2) DB-dən hard delete
+        _context.Images.Remove(image);
         await _context.SaveChangesAsync();
 
-        return new BaseResponse<string>("Image deleted from gym", HttpStatusCode.OK);
+        return new BaseResponse<string>("Image hard-deleted", HttpStatusCode.OK);
     }
     public async Task<BaseResponse<string>> AddCategoriesOnlyAsync(Guid gymId, List<Guid> categoryIds)
     {

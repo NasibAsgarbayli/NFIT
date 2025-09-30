@@ -83,7 +83,29 @@ public class Authentication : IAuthentication
         var token = await GenerateTokensAsync(existedUser);
         return new("Token generated", token, HttpStatusCode.OK);
     }
+    public async Task<BaseResponse<string>> LogoutAsync(ClaimsPrincipal userPrincipal)
+    {
+        var userId = userPrincipal.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId))
+            return new("Unauthorized", null, HttpStatusCode.Unauthorized);
 
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null)
+            return new("User not found", null, HttpStatusCode.NotFound);
+
+        // 1) Refresh token-i sildir
+        user.RefreshToken = null;
+        user.ExpireDate = null;
+        await _userManager.UpdateAsync(user);
+
+        // 2) Security stamp-i yenilə -> mövcud access token-lər dərhal keçərsiz olacaq
+        await _userManager.UpdateSecurityStampAsync(user);
+
+        // (Əgər cookie sign-in də varsa)
+        await _signInManager.SignOutAsync();
+
+        return new("Logged out", null, HttpStatusCode.OK);
+    }
     public async Task<BaseResponse<string>> Register(UserRegisterDto dto)
     {
 
@@ -142,10 +164,12 @@ public class Authentication : IAuthentication
         var key = Encoding.UTF8.GetBytes(_jwtSetting.SecretKey);
 
         var claims = new List<Claim>
-        {
-            new Claim(ClaimTypes.NameIdentifier, user.Id),
-            new Claim(ClaimTypes.Email, user.Email!)
-        };
+    {
+        new Claim(ClaimTypes.NameIdentifier, user.Id),
+        new Claim(ClaimTypes.Email, user.Email ?? string.Empty)
+    };
+
+        // Rollar
         var roles = await _userManager.GetRolesAsync(user);
         foreach (var roleName in roles)
         {
@@ -156,13 +180,15 @@ public class Authentication : IAuthentication
             {
                 var roleClaims = await _roleManager.GetClaimsAsync(role);
                 var permissionClaims = roleClaims.Where(c => c.Type == "Permission").Distinct();
-
                 foreach (var permissionClaim in permissionClaims)
-                {
                     claims.Add(new Claim("Permission", permissionClaim.Value));
-                }
             }
         }
+
+        // 🔐 SECURITY STAMP-i tokenə əlavə edirik (logout sonrası token dərhal keçərsiz olsun)
+        var stamp = await _userManager.GetSecurityStampAsync(user);
+        claims.Add(new Claim("ss", stamp));
+
         var tokenDescriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(claims),
@@ -177,11 +203,10 @@ public class Authentication : IAuthentication
         var token = tokenHandler.CreateToken(tokenDescriptor);
         var jwt = tokenHandler.WriteToken(token);
 
-
+        // Refresh token-i yenilə
         var refreshToken = GenerateRefreshToken();
-        var refreshTokenExpiryDate = DateTime.UtcNow.AddHours(2);
         user.RefreshToken = refreshToken;
-        user.ExpireDate = refreshTokenExpiryDate;
+        user.ExpireDate = DateTime.UtcNow.AddHours(2);
         await _userManager.UpdateAsync(user);
 
         return new TokenResponse
@@ -314,5 +339,9 @@ public class Authentication : IAuthentication
         Console.WriteLine("Reset Password Link : " + link);
         return link;
     }
+
+
+
+
 
 }
